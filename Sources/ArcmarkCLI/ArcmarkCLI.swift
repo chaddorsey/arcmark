@@ -42,6 +42,12 @@ struct GlobalOptions: ParsableArguments {
     @Option(name: .long, help: "Override the data directory (default: ~/Library/Application Support/Arcmark/).")
     var dataDir: String?
 
+    @Flag(name: .long, help: "Suppress informational messages.")
+    var quiet = false
+
+    @Flag(name: .long, help: "Validate and show what would change without persisting.")
+    var dryRun = false
+
     /// Resolve the effective output format based on flags and TTY detection.
     var effectiveFormat: OutputFormat {
         if let explicit = format { return explicit }
