@@ -175,6 +175,40 @@ final class WorkspaceExplicitAPITests: XCTestCase {
         testDefaults.removePersistentDomain(forName: suiteName)
     }
 
+    func testCreateWorkspaceWithoutSelection() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store, defaults: nil)
+
+        let originalSelectedId = model.state.selectedWorkspaceId
+
+        let newWsId = model.createWorkspace(name: "Background", colorId: .ocean, selectAfterCreation: false)
+
+        // New workspace should exist
+        XCTAssertTrue(model.state.workspaces.contains(where: { $0.id == newWsId }))
+        // But selected workspace should not have changed
+        XCTAssertEqual(model.state.selectedWorkspaceId, originalSelectedId)
+    }
+
+    // MARK: - Throwing Initializer
+
+    func testThrowingInitSucceeds() throws {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+
+        let model = try AppModel(store: store, defaults: nil, throwing: true)
+        XCTAssertFalse(model.workspaces.isEmpty)
+    }
+
+    func testThrowingInitThrowsOnCorruptData() throws {
+        let store = makeStore()
+        let dataURL = store.baseDirectory.appendingPathComponent("data.json")
+        try FileManager.default.createDirectory(at: store.baseDirectory, withIntermediateDirectories: true)
+        try "corrupt".data(using: .utf8)!.write(to: dataURL)
+
+        XCTAssertThrowsError(try AppModel(store: store, defaults: nil, throwing: true))
+    }
+
     // MARK: - GUI+CLI Round Trip
 
     func testGUICLIRoundTrip() {

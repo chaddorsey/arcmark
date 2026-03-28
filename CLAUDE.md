@@ -65,11 +65,12 @@ For complete distribution workflow including DMG creation and beta testing, see 
 
 ### Target Structure
 
-The project is organized into four Swift Package Manager targets:
+The project is organized into six Swift Package Manager targets:
 
-- **ArcmarkData** (Foundation-only library) — Models, AppModel, DataStore, NodeFiltering, import services, WorkspaceColorId, UserDefaultsKeys. Zero AppKit dependencies. Designed for consumption by both the GUI app and a future CLI tool. All types are `public`. AppModel is `@MainActor` and provides workspace-explicit method overloads (e.g., `addLink(urlString:title:parentId:inWorkspace:)`) for programmatic consumers that target a specific workspace without relying on `currentWorkspace`.
+- **ArcmarkData** (Foundation-only library) — Models, AppModel, DataStore, NodeFiltering, import services, WorkspaceColorId, UserDefaultsKeys. Zero AppKit dependencies. Consumed by both the GUI app and the CLI tool. All types are `public`. AppModel is `@MainActor` and provides workspace-explicit method overloads (e.g., `addLink(urlString:title:parentId:inWorkspace:)`) for programmatic consumers that target a specific workspace without relying on `currentWorkspace`. Includes a throwing initializer (`init(store:defaults:throwing:)`) for CLI use that propagates data corruption errors.
 - **ArcmarkCore** (AppKit library) — All UI components, view controllers, and AppKit services (FaviconService, LinkTitleService, BrowserManager, ThemeConstants). Depends on ArcmarkData + Sparkle. Re-exports ArcmarkData via `@_exported import`.
 - **ArcmarkApp** (GUI executable) — Minimal entry point. Depends on ArcmarkCore.
+- **ArcmarkCLI** (CLI executable) — Command-line interface for managing bookmarks. Depends on ArcmarkData + ArgumentParser. No AppKit dependency. Binary name: `arcmark`. Uses the throwing AppModel initializer and suppresses UserDefaults side effects (`defaults: nil`).
 - **ArcmarkDataTests** (test target) — Tests for the Foundation-only data layer. Validates workspace-explicit API, DataStore error propagation, import services, and model operations independently of AppKit.
 - **ArcmarkTests** (test target) — Tests that may depend on ArcmarkCore (AppKit). Currently shares the same model/import tests but also covers UI-related behavior.
 

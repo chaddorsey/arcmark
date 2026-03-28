@@ -13,7 +13,19 @@ public final class AppModel {
         self.store = store
         self.defaults = defaults
         self.state = store.load()
+        restoreSelectedWorkspace()
+    }
 
+    /// Throwing initializer for CLI use — propagates data corruption errors instead of silently
+    /// falling back to default state. Use this when silent data loss is unacceptable.
+    public init(store: DataStore, defaults: UserDefaults? = nil, throwing: Bool) throws {
+        self.store = store
+        self.defaults = defaults
+        self.state = try store.tryLoad()
+        restoreSelectedWorkspace()
+    }
+
+    private func restoreSelectedWorkspace() {
         if !state.isSettingsSelected {
             if let savedId = defaults?.string(forKey: UserDefaultsKeys.lastSelectedWorkspaceId),
                let uuid = UUID(uuidString: savedId),
