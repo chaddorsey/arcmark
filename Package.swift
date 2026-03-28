@@ -14,10 +14,13 @@ let package = Package(
         // AppKit UI layer for bundler to use
         .library(name: "ArcmarkCore", targets: ["ArcmarkCore"]),
         // GUI executable for development/testing
-        .executable(name: "Arcmark", targets: ["ArcmarkApp"])
+        .executable(name: "Arcmark", targets: ["ArcmarkApp"]),
+        // CLI executable
+        .executable(name: "arcmark", targets: ["ArcmarkCLI"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0")
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0")
     ],
     targets: [
         // Foundation-only data layer (Models, AppModel, DataStore, etc.)
@@ -28,6 +31,14 @@ let package = Package(
         .executableTarget(
             name: "ArcmarkApp",
             dependencies: ["ArcmarkCore"]
+        ),
+        // CLI executable
+        .executableTarget(
+            name: "ArcmarkCLI",
+            dependencies: [
+                "ArcmarkData",
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ]
         ),
         .testTarget(
             name: "ArcmarkDataTests",
