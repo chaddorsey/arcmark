@@ -47,6 +47,35 @@ public final class DataStore {
         }
     }
 
+    // MARK: - Throwing Variants (CLI)
+
+    /// Load state, propagating errors instead of silently falling back to defaults.
+    /// Use this in CLI contexts where silent data loss is unacceptable.
+    public func tryLoad() throws -> AppState {
+        ensureDirectories()
+        guard fileManager.fileExists(atPath: dataURL.path) else {
+            let defaultState = Self.defaultState()
+            try trySave(defaultState)
+            return defaultState
+        }
+
+        let data = try Data(contentsOf: dataURL)
+        let decoder = JSONDecoder()
+        return try decoder.decode(AppState.self, from: data)
+    }
+
+    /// Save state, propagating errors instead of silently swallowing them.
+    /// Use this in CLI contexts where failed writes must produce non-zero exit codes.
+    public func trySave(_ state: AppState) throws {
+        ensureDirectories()
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(state)
+        try data.write(to: dataURL, options: [.atomic])
+    }
+
+    // MARK: - Icons
+
     public func iconsDirectory() -> URL {
         let iconsURL = baseDirectory.appendingPathComponent("Icons", isDirectory: true)
         if !fileManager.fileExists(atPath: iconsURL.path) {
