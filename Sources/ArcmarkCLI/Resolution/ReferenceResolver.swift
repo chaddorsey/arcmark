@@ -27,7 +27,7 @@ enum ReferenceResolver {
             throw CLIError.ambiguousReference(
                 entity: "workspace",
                 reference: ref,
-                candidates: matches.map(\.name)
+                candidates: matches.map { "\($0.name) (\($0.id.uuidString.prefix(8))...)" }
             )
         }
 

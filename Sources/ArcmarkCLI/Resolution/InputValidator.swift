@@ -5,16 +5,32 @@ import Foundation
 /// with structured errors that enable self-correction.
 enum InputValidator {
 
-    /// Reject strings containing control characters (< ASCII 0x20), excluding common whitespace.
+    /// Reject strings containing control characters (C0 < 0x20, DEL 0x7F, C1 0x80-0x9F),
+    /// including newlines and carriage returns which break table output and enable terminal injection.
+    /// Only tab (0x09) is allowed as whitespace within values.
     static func validateNoControlChars(_ value: String, field: String) throws {
         for scalar in value.unicodeScalars {
-            if scalar.value < 0x20 && scalar != "\n" && scalar != "\r" && scalar != "\t" {
+            if (scalar.value < 0x20 && scalar != "\t") ||
+                scalar.value == 0x7F ||
+                (scalar.value >= 0x80 && scalar.value <= 0x9F) {
                 throw CLIError.invalidInput(
                     field: field,
                     value: value,
                     reason: "contains control character (U+\(String(format: "%04X", scalar.value)))"
                 )
             }
+        }
+    }
+
+    /// Reject empty or whitespace-only strings.
+    static func validateNotEmpty(_ value: String, field: String) throws {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            throw CLIError.invalidInput(
+                field: field,
+                value: value.isEmpty ? "(empty)" : "(whitespace only)",
+                reason: "\(field) cannot be empty"
+            )
         }
     }
 
@@ -71,5 +87,15 @@ enum InputValidator {
                 reason: "only http and https URLs are allowed (got \(scheme))"
             )
         }
+    }
+
+    /// Warn (not reject) if a workspace name duplicates an existing one.
+    /// Returns warnings array for dry-run output.
+    static func checkDuplicateWorkspaceName(_ name: String, in state: AppState) -> [String] {
+        let existing = state.workspaces.filter { $0.name.lowercased() == name.lowercased() }
+        if !existing.isEmpty {
+            return ["A workspace named '\(existing[0].name)' already exists. Duplicate names cause ambiguous reference resolution."]
+        }
+        return []
     }
 }

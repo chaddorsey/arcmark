@@ -41,6 +41,10 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "ArcmarkCLITests",
+            dependencies: ["ArcmarkCLI", "ArcmarkData"]
+        ),
+        .testTarget(
             name: "ArcmarkDataTests",
             dependencies: ["ArcmarkData"]
         ),

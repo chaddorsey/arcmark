@@ -28,22 +28,7 @@ enum OutputFormatter {
         }
     }
 
-    /// Print a simple success message respecting format and quiet flags.
-    static func printSuccess(_ message: String, format: OutputFormat, quiet: Bool) {
-        guard !quiet else { return }
-        switch format {
-        case .json:
-            let json = ["status": "ok", "message": message]
-            if let data = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]),
-               let string = String(data: data, encoding: .utf8) {
-                Swift.print(string)
-            }
-        case .table:
-            Swift.print(message)
-        }
-    }
-
-    /// Print a structured error to stderr and exit with non-zero code.
+    /// Print a structured CLIError respecting format.
     static func printError(_ error: CLIError, format: OutputFormat) {
         switch format {
         case .json:

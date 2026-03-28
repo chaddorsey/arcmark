@@ -1,13 +1,16 @@
 import Foundation
 
 /// Structured errors for CLI output. Renders as JSON when in JSON mode,
-/// human-readable text otherwise.
-enum CLIError: Error, LocalizedError {
+/// human-readable text otherwise. All cases include a `message` field for
+/// generic error handling by agents.
+enum CLIError: Error, LocalizedError, CustomStringConvertible {
     case notFound(entity: String, reference: String, suggestions: [String])
     case ambiguousReference(entity: String, reference: String, candidates: [String])
     case invalidInput(field: String, value: String, reason: String)
     case validationFailed(message: String)
     case dataError(message: String)
+
+    var description: String { errorDescription ?? "Unknown error" }
 
     var errorDescription: String? {
         switch self {
@@ -29,40 +32,32 @@ enum CLIError: Error, LocalizedError {
     }
 
     func toJSON() -> [String: Any] {
+        var base: [String: Any] = ["message": errorDescription ?? "Unknown error"]
+
         switch self {
         case .notFound(let entity, let reference, let suggestions):
-            return [
-                "error": "not_found",
-                "entity": entity,
-                "reference": reference,
-                "suggestions": suggestions,
-                "hint": "Use 'arcmark \(entity) list --json' to see all \(entity)s."
-            ]
+            base["error"] = "not_found"
+            base["entity"] = entity
+            base["reference"] = reference
+            base["suggestions"] = suggestions
+            base["hint"] = "Use 'arcmark \(entity) list --json' to see all \(entity)s."
         case .ambiguousReference(let entity, let reference, let candidates):
-            return [
-                "error": "ambiguous_reference",
-                "entity": entity,
-                "reference": reference,
-                "candidates": candidates,
-                "hint": "Use a UUID for an exact match."
-            ]
+            base["error"] = "ambiguous_reference"
+            base["entity"] = entity
+            base["reference"] = reference
+            base["candidates"] = candidates
+            base["hint"] = "Use a UUID for an exact match."
         case .invalidInput(let field, let value, let reason):
-            return [
-                "error": "invalid_input",
-                "field": field,
-                "value": value,
-                "reason": reason
-            ]
-        case .validationFailed(let message):
-            return [
-                "error": "validation_failed",
-                "message": message
-            ]
-        case .dataError(let message):
-            return [
-                "error": "data_error",
-                "message": message
-            ]
+            base["error"] = "invalid_input"
+            base["field"] = field
+            base["value"] = value
+            base["reason"] = reason
+        case .validationFailed:
+            base["error"] = "validation_failed"
+        case .dataError:
+            base["error"] = "data_error"
         }
+
+        return base
     }
 }

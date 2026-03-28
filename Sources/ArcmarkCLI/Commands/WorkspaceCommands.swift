@@ -27,7 +27,7 @@ struct WorkspaceGroup: AsyncParsableCommand {
 
         @OptionGroup var globals: GlobalOptions
 
-        @Option(name: .long, help: "Limit output to specific fields (comma-separated: id, name, colorId, colorName, itemCount, pinnedCount).")
+        @Option(name: .long, help: "Limit output to specific fields (comma-separated: id, name, colorId, colorName, itemCount, pinnedCount, isSelected).")
         var fields: String?
 
         @Option(name: .long, help: "Maximum number of workspaces to return.")
@@ -39,35 +39,19 @@ struct WorkspaceGroup: AsyncParsableCommand {
             }
 
             let model = try await globals.makeModel()
-            let workspaces = await model.workspaces
+            let state = await model.state
+            let workspaces = state.workspaces
             let format = globals.effectiveFormat
 
-            let validFields: Set<String> = ["id", "name", "colorId", "colorName", "itemCount", "pinnedCount"]
             let ws = if let limit { Array(workspaces.prefix(limit)) } else { workspaces }
 
             var entries: [WorkspaceEntry] = []
-
             for workspace in ws {
-                entries.append(WorkspaceEntry(
-                    id: workspace.id.uuidString,
-                    name: workspace.name,
-                    colorId: workspace.colorId.rawValue,
-                    colorName: workspace.colorId.name,
-                    itemCount: countNodes(workspace.items),
-                    pinnedCount: workspace.pinnedLinks.count
-                ))
+                entries.append(WorkspaceEntry.from(workspace, selectedId: state.selectedWorkspaceId))
             }
 
             if let fields {
-                let requested = Set(fields.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) })
-                let unknown = requested.subtracting(validFields)
-                if !unknown.isEmpty {
-                    throw CLIError.invalidInput(
-                        field: "fields",
-                        value: unknown.sorted().joined(separator: ", "),
-                        reason: "unknown field(s). Valid fields: \(validFields.sorted().joined(separator: ", "))"
-                    )
-                }
+                try WorkspaceEntry.validateFields(fields)
             }
 
             let output = WorkspaceListOutput(entries: entries, fields: fields)
@@ -91,29 +75,28 @@ struct WorkspaceGroup: AsyncParsableCommand {
         var color: String = "ember"
 
         mutating func run() async throws {
+            try InputValidator.validateNotEmpty(name, field: "name")
             try InputValidator.validateNoControlChars(name, field: "name")
             let colorId = try InputValidator.validateColor(color)
             let format = globals.effectiveFormat
+
+            let model = try await globals.makeModel()
+            let warnings = InputValidator.checkDuplicateWorkspaceName(name, in: await model.state)
 
             if globals.dryRun {
                 let result = DryRunResult(
                     action: "workspace.create",
                     description: "Create workspace '\(name)' with color \(colorId.rawValue) (\(colorId.name))",
-                    valid: true, warnings: []
+                    valid: true, warnings: warnings
                 )
                 OutputFormatter.print(result, format: format)
                 return
             }
 
-            let model = try await globals.makeModel()
             let id = await model.createWorkspace(name: name, colorId: colorId, selectAfterCreation: false)
-
-            let output = SingleValueOutput(value: ["id": id.uuidString, "name": name, "colorId": colorId.rawValue])
-            OutputFormatter.print(output, format: format)
-
-            if !globals.quiet {
-                OutputFormatter.printSuccess("Created workspace '\(name)' (\(id.uuidString.prefix(8))...)", format: format, quiet: false)
-            }
+            let ws = await model.state.workspaces.first(where: { $0.id == id })!
+            let entry = WorkspaceEntry.from(ws, selectedId: await model.state.selectedWorkspaceId)
+            OutputFormatter.print(MutationOutput(entity: entry, message: "Created workspace '\(name)'"), format: format)
         }
     }
 
@@ -133,23 +116,28 @@ struct WorkspaceGroup: AsyncParsableCommand {
         var newName: String
 
         mutating func run() async throws {
+            try InputValidator.validateNotEmpty(newName, field: "name")
             try InputValidator.validateNoControlChars(newName, field: "name")
             let format = globals.effectiveFormat
             let model = try await globals.makeModel()
             let ws = try ReferenceResolver.resolveWorkspace(ref, in: await model.state)
 
+            let warnings = InputValidator.checkDuplicateWorkspaceName(newName, in: await model.state)
+
             if globals.dryRun {
                 let result = DryRunResult(
                     action: "workspace.rename",
                     description: "Rename workspace '\(ws.name)' to '\(newName)'",
-                    valid: true, warnings: []
+                    valid: true, warnings: warnings
                 )
                 OutputFormatter.print(result, format: format)
                 return
             }
 
             await model.renameWorkspace(id: ws.id, newName: newName)
-            OutputFormatter.printSuccess("Renamed '\(ws.name)' to '\(newName)'", format: format, quiet: globals.quiet)
+            let updated = await model.state.workspaces.first(where: { $0.id == ws.id })!
+            let entry = WorkspaceEntry.from(updated, selectedId: await model.state.selectedWorkspaceId)
+            OutputFormatter.print(MutationOutput(entity: entry, message: "Renamed '\(ws.name)' to '\(newName)'"), format: format)
         }
     }
 
@@ -192,7 +180,10 @@ struct WorkspaceGroup: AsyncParsableCommand {
             }
 
             await model.deleteWorkspace(id: ws.id)
-            OutputFormatter.printSuccess("Deleted workspace '\(ws.name)'", format: format, quiet: globals.quiet)
+            OutputFormatter.print(
+                MutationOutput(entity: ["id": ws.id.uuidString, "name": ws.name], message: "Deleted workspace '\(ws.name)'"),
+                format: format
+            )
         }
     }
 
@@ -228,7 +219,9 @@ struct WorkspaceGroup: AsyncParsableCommand {
             }
 
             await model.updateWorkspaceColor(id: ws.id, colorId: colorId)
-            OutputFormatter.printSuccess("Changed '\(ws.name)' color to \(colorId.rawValue) (\(colorId.name))", format: format, quiet: globals.quiet)
+            let updated = await model.state.workspaces.first(where: { $0.id == ws.id })!
+            let entry = WorkspaceEntry.from(updated, selectedId: await model.state.selectedWorkspaceId)
+            OutputFormatter.print(MutationOutput(entity: entry, message: "Changed '\(ws.name)' color to \(colorId.rawValue) (\(colorId.name))"), format: format)
         }
     }
 
@@ -261,8 +254,9 @@ struct WorkspaceGroup: AsyncParsableCommand {
                 )
             }
 
+            let currentIndex = state.workspaces.firstIndex(where: { $0.id == ws.id }) ?? 0
+
             if globals.dryRun {
-                let currentIndex = state.workspaces.firstIndex(where: { $0.id == ws.id }) ?? 0
                 let result = DryRunResult(
                     action: "workspace.reorder",
                     description: "Move '\(ws.name)' from position \(currentIndex) to \(to)",
@@ -273,7 +267,8 @@ struct WorkspaceGroup: AsyncParsableCommand {
             }
 
             await model.reorderWorkspace(id: ws.id, toIndex: to)
-            OutputFormatter.printSuccess("Moved '\(ws.name)' to position \(to)", format: format, quiet: globals.quiet)
+            let entry = WorkspaceEntry.from(ws, selectedId: await model.state.selectedWorkspaceId)
+            OutputFormatter.print(MutationOutput(entity: entry, message: "Moved '\(ws.name)' to position \(to)"), format: format)
         }
     }
 
@@ -291,7 +286,10 @@ struct WorkspaceGroup: AsyncParsableCommand {
 
         mutating func run() async throws {
             let format = globals.effectiveFormat
-            let model = try await globals.makeModel()
+            // Use a single model with UserDefaults enabled — selectWorkspace intentionally
+            // writes UserDefaults as the agent-to-GUI control mechanism.
+            let store = globals.makeStore()
+            let model = try await AppModel(store: store, defaults: .standard, throwing: true)
             let ws = try ReferenceResolver.resolveWorkspace(ref, in: await model.state)
 
             if globals.dryRun {
@@ -304,12 +302,9 @@ struct WorkspaceGroup: AsyncParsableCommand {
                 return
             }
 
-            // selectWorkspace intentionally writes UserDefaults — it's the agent-to-GUI control command.
-            // We need a model with defaults enabled for this specific command.
-            let store = globals.makeStore()
-            let selectModel = await AppModel(store: store, defaults: .standard)
-            await selectModel.selectWorkspace(id: ws.id)
-            OutputFormatter.printSuccess("Selected workspace '\(ws.name)'", format: format, quiet: globals.quiet)
+            await model.selectWorkspace(id: ws.id)
+            let entry = WorkspaceEntry.from(ws, selectedId: ws.id)
+            OutputFormatter.print(MutationOutput(entity: entry, message: "Selected workspace '\(ws.name)'"), format: format)
         }
     }
 
@@ -346,8 +341,10 @@ struct WorkspaceGroup: AsyncParsableCommand {
             }
 
             await model.updateWorkspaceBrowserProfile(id: ws.id, bundleId: browser, profile: profile)
+            let updated = await model.state.workspaces.first(where: { $0.id == ws.id })!
+            let entry = WorkspaceEntry.from(updated, selectedId: await model.state.selectedWorkspaceId)
             let action = profile != nil ? "Set" : "Cleared"
-            OutputFormatter.printSuccess("\(action) browser profile for '\(ws.name)'", format: format, quiet: globals.quiet)
+            OutputFormatter.print(MutationOutput(entity: entry, message: "\(action) browser profile for '\(ws.name)'"), format: format)
         }
     }
 }
@@ -361,6 +358,33 @@ struct WorkspaceEntry: Codable {
     let colorName: String
     let itemCount: Int
     let pinnedCount: Int
+    let isSelected: Bool
+
+    static let validFields: Set<String> = ["id", "name", "colorId", "colorName", "itemCount", "pinnedCount", "isSelected"]
+
+    static func from(_ workspace: Workspace, selectedId: UUID?) -> WorkspaceEntry {
+        WorkspaceEntry(
+            id: workspace.id.uuidString,
+            name: workspace.name,
+            colorId: workspace.colorId.rawValue,
+            colorName: workspace.colorId.name,
+            itemCount: countNodes(workspace.items),
+            pinnedCount: workspace.pinnedLinks.count,
+            isSelected: workspace.id == selectedId
+        )
+    }
+
+    static func validateFields(_ fields: String) throws {
+        let requested = Set(fields.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) })
+        let unknown = requested.subtracting(validFields)
+        if !unknown.isEmpty {
+            throw CLIError.invalidInput(
+                field: "fields",
+                value: unknown.sorted().joined(separator: ", "),
+                reason: "unknown field(s). Valid fields: \(validFields.sorted().joined(separator: ", "))"
+            )
+        }
+    }
 }
 
 struct WorkspaceListOutput: OutputFormattable {
@@ -384,27 +408,66 @@ struct WorkspaceListOutput: OutputFormattable {
 
     func toText() -> String {
         if entries.isEmpty { return "No workspaces." }
+
+        let requested: Set<String>? = fields.map { f in
+            Set(f.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) })
+        }
+
         var lines: [String] = []
         for entry in entries {
-            let pinned = entry.pinnedCount > 0 ? ", \(entry.pinnedCount) pinned" : ""
-            lines.append("  \(entry.name)  (\(entry.colorName), \(entry.itemCount) items\(pinned))")
+            if let requested {
+                // Field-filtered table output
+                var parts: [String] = []
+                if requested.contains("id") { parts.append(entry.id) }
+                if requested.contains("name") { parts.append(entry.name) }
+                if requested.contains("colorId") { parts.append(entry.colorId) }
+                if requested.contains("colorName") { parts.append(entry.colorName) }
+                if requested.contains("itemCount") { parts.append("\(entry.itemCount) items") }
+                if requested.contains("pinnedCount") { parts.append("\(entry.pinnedCount) pinned") }
+                if requested.contains("isSelected") { parts.append(entry.isSelected ? "selected" : "") }
+                lines.append("  " + parts.filter { !$0.isEmpty }.joined(separator: "  "))
+            } else {
+                let pinned = entry.pinnedCount > 0 ? ", \(entry.pinnedCount) pinned" : ""
+                let selected = entry.isSelected ? " *" : ""
+                lines.append("  \(entry.name)  (\(entry.colorName), \(entry.itemCount) items\(pinned))\(selected)")
+            }
         }
         return lines.joined(separator: "\n")
     }
 }
 
-/// Simple key-value output for single-entity responses (create, etc.)
-struct SingleValueOutput: OutputFormattable {
-    let value: [String: String]
+/// Unified output for mutation commands — single JSON object with entity data + message.
+struct MutationOutput<T: Codable>: OutputFormattable {
+    let entity: T
+    let message: String
 
     func encodeJSON() throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return try encoder.encode(value)
+        return try encoder.encode(self)
     }
 
     func toText() -> String {
-        value.map { "\($0.key): \($0.value)" }.sorted().joined(separator: "\n")
+        message
+    }
+}
+
+extension MutationOutput: Codable {
+    enum CodingKeys: String, CodingKey {
+        case entity, message, status
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode("ok", forKey: .status)
+        try container.encode(message, forKey: .message)
+        try container.encode(entity, forKey: .entity)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        entity = try container.decode(T.self, forKey: .entity)
+        message = try container.decode(String.self, forKey: .message)
     }
 }
 
