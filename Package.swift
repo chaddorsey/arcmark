@@ -30,6 +30,10 @@ let package = Package(
             dependencies: ["ArcmarkCore"]
         ),
         .testTarget(
+            name: "ArcmarkDataTests",
+            dependencies: ["ArcmarkData"]
+        ),
+        .testTarget(
             name: "ArcmarkTests",
             dependencies: ["ArcmarkCore", "ArcmarkData"]
         )

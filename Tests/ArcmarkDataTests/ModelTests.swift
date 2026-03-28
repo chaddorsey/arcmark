@@ -1,0 +1,728 @@
+import XCTest
+
+@testable import ArcmarkData
+
+@MainActor
+final class ModelTests: XCTestCase {
+    private func makeStore() -> DataStore {
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        return DataStore(baseDirectory: temp)
+    }
+
+    func testJSONRoundTrip() throws {
+        let link = Link(id: UUID(), title: "Example", url: "https://example.com", faviconPath: nil)
+        let folder = Folder(id: UUID(), name: "Folder", children: [.link(link)], isExpanded: true)
+        let workspace = Workspace(id: UUID(), name: "Inbox", colorId: .ember, items: [.folder(folder)])
+        let state = AppState(schemaVersion: 1, workspaces: [workspace], selectedWorkspaceId: workspace.id, isSettingsSelected: false)
+
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(AppState.self, from: data)
+        XCTAssertEqual(state, decoded)
+    }
+
+    func testMoveNodeReorderAndNest() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        model.addFolder(name: "Folder", parentId: nil)
+        model.addLink(urlString: "https://a.com", title: "A", parentId: nil)
+        model.addLink(urlString: "https://b.com", title: "B", parentId: nil)
+
+        guard
+            let folderId = model.currentWorkspace.items.compactMap({
+                if case .folder(let folder) = $0 { return folder.id }
+                return nil
+            }).first,
+            let linkAId = model.currentWorkspace.items.compactMap({
+                if case .link(let link) = $0, link.title == "A" { return link.id }
+                return nil
+            }).first
+        else {
+            XCTFail("Expected nodes to exist")
+            return
+        }
+
+        model.moveNode(id: linkAId, toParentId: folderId, index: 0)
+        let location = model.location(of: linkAId)
+        XCTAssertEqual(location?.parentId, folderId)
+
+        if let folderNode = model.nodeById(folderId), case .folder(let folder) = folderNode {
+            XCTAssertEqual(folder.children.count, 1)
+        } else {
+            XCTFail("Expected folder to contain moved link")
+        }
+
+        if let linkBId = model.currentWorkspace.items.compactMap({
+            if case .link(let link) = $0, link.title == "B" { return link.id }
+            return nil
+        }).first {
+            model.moveNode(id: linkBId, toParentId: nil, index: 0)
+            let locationB = model.location(of: linkBId)
+            XCTAssertEqual(locationB?.parentId, nil)
+            XCTAssertEqual(locationB?.index, 0)
+        }
+    }
+
+    func testWorkspaceScopedFiltering() {
+        let link1 = Link(id: UUID(), title: "Docs", url: "https://docs.com", faviconPath: nil)
+        let link2 = Link(id: UUID(), title: "Blog", url: "https://blog.com", faviconPath: nil)
+        let folder = Folder(id: UUID(), name: "Reading", children: [.link(link2)], isExpanded: false)
+        let nodes: [Node] = [.link(link1), .folder(folder)]
+
+        let results = NodeFiltering.filter(nodes: nodes, query: "blog")
+        XCTAssertEqual(results.count, 1)
+        if case .folder(let filteredFolder) = results[0] {
+            XCTAssertEqual(filteredFolder.children.count, 1)
+        } else {
+            XCTFail("Expected folder to remain for matching child")
+        }
+    }
+
+    func testWorkspaceReordering() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        // Create three workspaces
+        let id1 = model.createWorkspace(name: "First", colorId: .ember)
+        let id2 = model.createWorkspace(name: "Second", colorId: .ruby)
+        let id3 = model.createWorkspace(name: "Third", colorId: .moss)
+
+        // Initial order should be: Inbox (default), First, Second, Third
+        XCTAssertEqual(model.workspaces.count, 4)
+        XCTAssertEqual(model.workspaces[0].name, "Inbox")
+        XCTAssertEqual(model.workspaces[1].name, "First")
+        XCTAssertEqual(model.workspaces[2].name, "Second")
+        XCTAssertEqual(model.workspaces[3].name, "Third")
+
+        // Move "Second" to the right (swap with "Third")
+        model.moveWorkspace(id: id2, direction: .right)
+        XCTAssertEqual(model.workspaces[2].name, "Third")
+        XCTAssertEqual(model.workspaces[3].name, "Second")
+
+        // Move "Second" to the left (swap back with "Third")
+        model.moveWorkspace(id: id2, direction: .left)
+        XCTAssertEqual(model.workspaces[2].name, "Second")
+        XCTAssertEqual(model.workspaces[3].name, "Third")
+
+        // Move "First" to the left (swap with "Inbox")
+        model.moveWorkspace(id: id1, direction: .left)
+        XCTAssertEqual(model.workspaces[0].name, "First")
+        XCTAssertEqual(model.workspaces[1].name, "Inbox")
+
+        // Try to move "First" to the left again (should not move, already at start)
+        model.moveWorkspace(id: id1, direction: .left)
+        XCTAssertEqual(model.workspaces[0].name, "First")
+        XCTAssertEqual(model.workspaces[1].name, "Inbox")
+
+        // Try to move "Third" to the right (should not move, already at end)
+        model.moveWorkspace(id: id3, direction: .right)
+        XCTAssertEqual(model.workspaces[2].name, "Second")
+        XCTAssertEqual(model.workspaces[3].name, "Third")
+    }
+
+    // MARK: - Pinned Links Tests
+
+    func testPinLink() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let linkId = model.addLink(urlString: "https://a.com", title: "A", parentId: nil)
+        XCTAssertEqual(model.currentWorkspace.items.count, 1)
+        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, 0)
+
+        model.pinLink(id: linkId)
+        XCTAssertEqual(model.currentWorkspace.items.count, 0)
+        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, 1)
+        XCTAssertEqual(model.currentWorkspace.pinnedLinks[0].id, linkId)
+        XCTAssertEqual(model.currentWorkspace.pinnedLinks[0].title, "A")
+    }
+
+    func testUnpinLink() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let linkId = model.addLink(urlString: "https://a.com", title: "A", parentId: nil)
+        model.pinLink(id: linkId)
+        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, 1)
+        XCTAssertEqual(model.currentWorkspace.items.count, 0)
+
+        model.unpinLink(id: linkId)
+        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, 0)
+        XCTAssertEqual(model.currentWorkspace.items.count, 1)
+        if case .link(let link) = model.currentWorkspace.items.last {
+            XCTAssertEqual(link.id, linkId)
+            XCTAssertEqual(link.title, "A")
+        } else {
+            XCTFail("Expected link at root level after unpin")
+        }
+    }
+
+    func testPinLinkMaximum() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let max = Workspace.maxPinnedLinks
+        var linkIds: [UUID] = []
+        for i in 0..<(max + 1) {
+            let id = model.addLink(urlString: "https://\(i).com", title: "Link \(i)", parentId: nil)
+            linkIds.append(id)
+        }
+
+        // Pin up to the maximum
+        for i in 0..<max {
+            model.pinLink(id: linkIds[i])
+        }
+        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, max)
+        XCTAssertEqual(model.currentWorkspace.items.count, 1)
+        XCTAssertFalse(model.canPinMore)
+
+        // Attempt to pin one more - should be rejected
+        model.pinLink(id: linkIds[max])
+        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, max)
+        XCTAssertEqual(model.currentWorkspace.items.count, 1)
+    }
+
+    func testPinLinkFromNestedFolder() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let folderId = model.addFolder(name: "Folder", parentId: nil)
+        let linkId = model.addLink(urlString: "https://nested.com", title: "Nested", parentId: folderId)
+
+        if let folderNode = model.nodeById(folderId), case .folder(let folder) = folderNode {
+            XCTAssertEqual(folder.children.count, 1)
+        }
+
+        model.pinLink(id: linkId)
+        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, 1)
+        XCTAssertEqual(model.currentWorkspace.pinnedLinks[0].title, "Nested")
+
+        // Verify link was removed from the folder
+        if let folderNode = model.nodeById(folderId), case .folder(let folder) = folderNode {
+            XCTAssertEqual(folder.children.count, 0)
+        } else {
+            XCTFail("Expected folder to still exist")
+        }
+    }
+
+    func testCannotPinFolder() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let folderId = model.addFolder(name: "Folder", parentId: nil)
+        model.pinLink(id: folderId)
+        XCTAssertEqual(model.currentWorkspace.pinnedLinks.count, 0)
+        XCTAssertEqual(model.currentWorkspace.items.count, 1)
+    }
+
+    func testJSONRoundTripWithPinnedLinks() throws {
+        let link = Link(id: UUID(), title: "Pinned", url: "https://pinned.com", faviconPath: nil)
+        let treeLink = Link(id: UUID(), title: "Tree", url: "https://tree.com", faviconPath: nil)
+        let workspace = Workspace(
+            id: UUID(),
+            name: "Test",
+            colorId: .ember,
+            items: [.link(treeLink)],
+            pinnedLinks: [link]
+        )
+        let state = AppState(schemaVersion: 1, workspaces: [workspace], selectedWorkspaceId: workspace.id, isSettingsSelected: false)
+
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(AppState.self, from: data)
+
+        XCTAssertEqual(decoded.workspaces[0].pinnedLinks.count, 1)
+        XCTAssertEqual(decoded.workspaces[0].pinnedLinks[0].title, "Pinned")
+        XCTAssertEqual(decoded.workspaces[0].items.count, 1)
+        XCTAssertEqual(state, decoded)
+    }
+
+    func testBackwardCompatibilityNoPinnedLinks() throws {
+        // Simulate old JSON format without pinnedLinks field
+        let json = """
+        {
+            "schemaVersion": 1,
+            "workspaces": [{
+                "id": "00000000-0000-0000-0000-000000000001",
+                "name": "Old Workspace",
+                "colorId": "ember",
+                "items": []
+            }],
+            "selectedWorkspaceId": "00000000-0000-0000-0000-000000000001",
+            "isSettingsSelected": false
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(AppState.self, from: data)
+
+        XCTAssertEqual(decoded.workspaces[0].pinnedLinks.count, 0)
+        XCTAssertEqual(decoded.workspaces[0].name, "Old Workspace")
+    }
+
+    // MARK: - Browser Profile Tests
+
+    func testJSONRoundTripWithBrowserProfiles() throws {
+        let workspace = Workspace(
+            id: UUID(),
+            name: "Work",
+            colorId: .ocean,
+            items: [],
+            pinnedLinks: [],
+            browserProfiles: ["com.google.chrome": "Profile 1", "org.mozilla.firefox": "default"]
+        )
+        let state = AppState(schemaVersion: 1, workspaces: [workspace], selectedWorkspaceId: workspace.id, isSettingsSelected: false)
+
+        let data = try JSONEncoder().encode(state)
+        let decoded = try JSONDecoder().decode(AppState.self, from: data)
+
+        XCTAssertEqual(decoded.workspaces[0].browserProfiles["com.google.chrome"], "Profile 1")
+        XCTAssertEqual(decoded.workspaces[0].browserProfiles["org.mozilla.firefox"], "default")
+        XCTAssertEqual(state, decoded)
+    }
+
+    func testBackwardCompatibilityNoBrowserProfile() throws {
+        // Simulate old JSON format without any browser profile fields
+        let json = """
+        {
+            "schemaVersion": 1,
+            "workspaces": [{
+                "id": "00000000-0000-0000-0000-000000000002",
+                "name": "Legacy Workspace",
+                "colorId": "moss",
+                "items": [],
+                "pinnedLinks": []
+            }],
+            "selectedWorkspaceId": "00000000-0000-0000-0000-000000000002",
+            "isSettingsSelected": false
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(AppState.self, from: data)
+
+        XCTAssertTrue(decoded.workspaces[0].browserProfiles.isEmpty)
+        XCTAssertEqual(decoded.workspaces[0].name, "Legacy Workspace")
+    }
+
+    func testBackwardCompatibilityOldBrowserProfileFormat() throws {
+        // Simulate old JSON format with browserProfile + browserProfileBundleId
+        let json = """
+        {
+            "schemaVersion": 1,
+            "workspaces": [{
+                "id": "00000000-0000-0000-0000-000000000003",
+                "name": "Migrated Workspace",
+                "colorId": "ocean",
+                "items": [],
+                "pinnedLinks": [],
+                "browserProfile": "Profile 1",
+                "browserProfileBundleId": "com.google.chrome"
+            }],
+            "selectedWorkspaceId": "00000000-0000-0000-0000-000000000003",
+            "isSettingsSelected": false
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(AppState.self, from: data)
+
+        XCTAssertEqual(decoded.workspaces[0].browserProfiles["com.google.chrome"], "Profile 1")
+        XCTAssertEqual(decoded.workspaces[0].browserProfiles.count, 1)
+    }
+
+    func testUpdateWorkspaceBrowserProfile() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let workspaceId = model.currentWorkspace.id
+        XCTAssertTrue(model.currentWorkspace.browserProfiles.isEmpty)
+
+        model.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: "com.google.chrome", profile: "Profile 2")
+        XCTAssertEqual(model.currentWorkspace.browserProfiles["com.google.chrome"], "Profile 2")
+    }
+
+    func testClearWorkspaceBrowserProfile() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let workspaceId = model.currentWorkspace.id
+
+        // Set profile
+        model.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: "com.google.chrome", profile: "Profile 1")
+        XCTAssertEqual(model.currentWorkspace.browserProfiles["com.google.chrome"], "Profile 1")
+
+        // Clear profile
+        model.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: "com.google.chrome", profile: nil)
+        XCTAssertNil(model.currentWorkspace.browserProfiles["com.google.chrome"])
+    }
+
+    func testUpdateWorkspaceBrowserProfileTrimsWhitespace() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let workspaceId = model.currentWorkspace.id
+
+        // Empty string should result in no entry
+        model.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: "com.google.chrome", profile: "   ")
+        XCTAssertNil(model.currentWorkspace.browserProfiles["com.google.chrome"])
+
+        // Whitespace-padded string should be trimmed
+        model.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: "com.google.chrome", profile: " Profile 1 ")
+        XCTAssertEqual(model.currentWorkspace.browserProfiles["com.google.chrome"], "Profile 1")
+    }
+
+    // MARK: - Open Folder Links Tests
+
+    func testFolderRootLinksWithOnlyLinks() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let folderId = model.addFolder(name: "Folder", parentId: nil)
+        model.addLink(urlString: "https://a.com", title: "A", parentId: folderId)
+        model.addLink(urlString: "https://b.com", title: "B", parentId: folderId)
+        model.addLink(urlString: "https://c.com", title: "C", parentId: folderId)
+
+        guard let node = model.nodeById(folderId), case .folder(let folder) = node else {
+            XCTFail("Expected folder"); return
+        }
+
+        let rootLinks = folder.children.compactMap { child -> Link? in
+            if case .link(let link) = child { return link }
+            return nil
+        }
+        XCTAssertEqual(rootLinks.count, 3)
+        XCTAssertEqual(rootLinks.map(\.title), ["A", "B", "C"])
+    }
+
+    func testFolderRootLinksWithMixedContent() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let folderId = model.addFolder(name: "Parent", parentId: nil)
+        model.addLink(urlString: "https://root1.com", title: "Root Link 1", parentId: folderId)
+        let nestedFolderId = model.addFolder(name: "Nested", parentId: folderId)
+        model.addLink(urlString: "https://nested.com", title: "Nested Link", parentId: nestedFolderId)
+        model.addLink(urlString: "https://root2.com", title: "Root Link 2", parentId: folderId)
+
+        guard let node = model.nodeById(folderId), case .folder(let folder) = node else {
+            XCTFail("Expected folder"); return
+        }
+
+        let rootLinks = folder.children.compactMap { child -> Link? in
+            if case .link(let link) = child { return link }
+            return nil
+        }
+        // Only root-level links, not the one inside the nested folder
+        XCTAssertEqual(rootLinks.count, 2)
+        XCTAssertEqual(rootLinks.map(\.title), ["Root Link 1", "Root Link 2"])
+    }
+
+    func testFolderRootLinksWithEmptyFolder() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let folderId = model.addFolder(name: "Empty", parentId: nil)
+
+        guard let node = model.nodeById(folderId), case .folder(let folder) = node else {
+            XCTFail("Expected folder"); return
+        }
+
+        let rootLinks = folder.children.compactMap { child -> Link? in
+            if case .link(let link) = child { return link }
+            return nil
+        }
+        XCTAssertEqual(rootLinks.count, 0)
+    }
+
+    func testFolderRootLinksWithOnlyNestedFolders() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let folderId = model.addFolder(name: "Parent", parentId: nil)
+        let childFolder1 = model.addFolder(name: "Child A", parentId: folderId)
+        let childFolder2 = model.addFolder(name: "Child B", parentId: folderId)
+        model.addLink(urlString: "https://deep1.com", title: "Deep 1", parentId: childFolder1)
+        model.addLink(urlString: "https://deep2.com", title: "Deep 2", parentId: childFolder2)
+
+        guard let node = model.nodeById(folderId), case .folder(let folder) = node else {
+            XCTFail("Expected folder"); return
+        }
+
+        let rootLinks = folder.children.compactMap { child -> Link? in
+            if case .link(let link) = child { return link }
+            return nil
+        }
+        // No root-level links, even though nested folders contain links
+        XCTAssertEqual(rootLinks.count, 0)
+    }
+
+    // MARK: - Bulk Open Links Tests
+
+    func testBulkOpenLinksWithOnlyLinks() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let linkId1 = model.addLink(urlString: "https://a.com", title: "A", parentId: nil)
+        let linkId2 = model.addLink(urlString: "https://b.com", title: "B", parentId: nil)
+        let linkId3 = model.addLink(urlString: "https://c.com", title: "C", parentId: nil)
+
+        let selectedIds: [UUID] = [linkId1, linkId2, linkId3]
+        var collectedLinks: [Link] = []
+
+        for nodeId in selectedIds {
+            guard let node = model.nodeById(nodeId) else { continue }
+            switch node {
+            case .link(let link):
+                collectedLinks.append(link)
+            case .folder(let folder):
+                for child in folder.children {
+                    if case .link(let link) = child {
+                        collectedLinks.append(link)
+                    }
+                }
+            }
+        }
+
+        XCTAssertEqual(collectedLinks.count, 3)
+        XCTAssertEqual(Set(collectedLinks.map(\.url)), Set(["https://a.com", "https://b.com", "https://c.com"]))
+    }
+
+    func testBulkOpenLinksWithFolders() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let folderId = model.addFolder(name: "Folder", parentId: nil)
+        model.addLink(urlString: "https://inside1.com", title: "Inside 1", parentId: folderId)
+        model.addLink(urlString: "https://inside2.com", title: "Inside 2", parentId: folderId)
+
+        let selectedIds: [UUID] = [folderId]
+        var collectedLinks: [Link] = []
+
+        for nodeId in selectedIds {
+            guard let node = model.nodeById(nodeId) else { continue }
+            switch node {
+            case .link(let link):
+                collectedLinks.append(link)
+            case .folder(let folder):
+                for child in folder.children {
+                    if case .link(let link) = child {
+                        collectedLinks.append(link)
+                    }
+                }
+            }
+        }
+
+        XCTAssertEqual(collectedLinks.count, 2)
+        XCTAssertEqual(Set(collectedLinks.map(\.url)), Set(["https://inside1.com", "https://inside2.com"]))
+    }
+
+    func testBulkOpenLinksWithMixedSelection() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let linkId = model.addLink(urlString: "https://direct.com", title: "Direct", parentId: nil)
+        let folderId = model.addFolder(name: "Folder", parentId: nil)
+        model.addLink(urlString: "https://inside.com", title: "Inside", parentId: folderId)
+        let nestedFolderId = model.addFolder(name: "Nested", parentId: folderId)
+        model.addLink(urlString: "https://deep.com", title: "Deep", parentId: nestedFolderId)
+
+        let selectedIds: [UUID] = [linkId, folderId]
+        var collectedLinks: [Link] = []
+
+        for nodeId in selectedIds {
+            guard let node = model.nodeById(nodeId) else { continue }
+            switch node {
+            case .link(let link):
+                collectedLinks.append(link)
+            case .folder(let folder):
+                for child in folder.children {
+                    if case .link(let link) = child {
+                        collectedLinks.append(link)
+                    }
+                }
+            }
+        }
+
+        // Direct link + root-level link from folder, NOT the deeply nested link
+        XCTAssertEqual(collectedLinks.count, 2)
+        XCTAssertEqual(Set(collectedLinks.map(\.url)), Set(["https://direct.com", "https://inside.com"]))
+    }
+
+    func testBulkOpenLinksIgnoresNestedFolderLinks() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let parentFolderId = model.addFolder(name: "Parent", parentId: nil)
+        let childFolderId = model.addFolder(name: "Child", parentId: parentFolderId)
+        model.addLink(urlString: "https://nested.com", title: "Nested", parentId: childFolderId)
+
+        // Only select the parent folder, not the child folder
+        let selectedIds: [UUID] = [parentFolderId]
+        var collectedLinks: [Link] = []
+
+        for nodeId in selectedIds {
+            guard let node = model.nodeById(nodeId) else { continue }
+            switch node {
+            case .link(let link):
+                collectedLinks.append(link)
+            case .folder(let folder):
+                for child in folder.children {
+                    if case .link(let link) = child {
+                        collectedLinks.append(link)
+                    }
+                }
+            }
+        }
+
+        // Parent folder has no root-level links, only a nested folder
+        XCTAssertEqual(collectedLinks.count, 0)
+    }
+
+    func testBulkOpenLinksWithExplicitlySelectedNestedFolder() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let parentFolderId = model.addFolder(name: "Parent", parentId: nil)
+        let childFolderId = model.addFolder(name: "Child", parentId: parentFolderId)
+        model.addLink(urlString: "https://nested.com", title: "Nested", parentId: childFolderId)
+        model.addLink(urlString: "https://root.com", title: "Root", parentId: parentFolderId)
+
+        // Explicitly select both parent and child folders
+        let selectedIds: [UUID] = [parentFolderId, childFolderId]
+        var collectedLinks: [Link] = []
+
+        for nodeId in selectedIds {
+            guard let node = model.nodeById(nodeId) else { continue }
+            switch node {
+            case .link(let link):
+                collectedLinks.append(link)
+            case .folder(let folder):
+                for child in folder.children {
+                    if case .link(let link) = child {
+                        collectedLinks.append(link)
+                    }
+                }
+            }
+        }
+
+        // Root link from parent + nested link from explicitly selected child folder
+        XCTAssertEqual(collectedLinks.count, 2)
+        XCTAssertEqual(Set(collectedLinks.map(\.url)), Set(["https://root.com", "https://nested.com"]))
+    }
+
+    // MARK: - Custom Icon Tests
+
+    func testCustomIconJSONRoundTrip() throws {
+        let link = Link(id: UUID(), title: "Test", url: "https://test.com", faviconPath: nil, customIcon: .emoji("🔥"))
+        let data = try JSONEncoder().encode(link)
+        let decoded = try JSONDecoder().decode(Link.self, from: data)
+        XCTAssertEqual(decoded.customIcon, .emoji("🔥"))
+    }
+
+    func testCustomIconSFSymbolRoundTrip() throws {
+        let link = Link(id: UUID(), title: "Test", url: "https://test.com", faviconPath: nil, customIcon: .sfSymbol("star.fill"))
+        let data = try JSONEncoder().encode(link)
+        let decoded = try JSONDecoder().decode(Link.self, from: data)
+        XCTAssertEqual(decoded.customIcon, .sfSymbol("star.fill"))
+    }
+
+    func testCustomIconNilRoundTrip() throws {
+        let link = Link(id: UUID(), title: "Test", url: "https://test.com", faviconPath: nil)
+        let data = try JSONEncoder().encode(link)
+        let decoded = try JSONDecoder().decode(Link.self, from: data)
+        XCTAssertNil(decoded.customIcon)
+    }
+
+    func testBackwardCompatibilityNoCustomIcon() throws {
+        let json = """
+        {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "title": "Old Link",
+            "url": "https://old.com"
+        }
+        """
+        let data = json.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(Link.self, from: data)
+        XCTAssertEqual(decoded.title, "Old Link")
+        XCTAssertNil(decoded.customIcon)
+        XCTAssertNil(decoded.faviconPath)
+    }
+
+    func testSetLinkCustomIcon() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let linkId = model.addLink(urlString: "https://a.com", title: "A", parentId: nil)
+
+        // Set emoji custom icon
+        model.setLinkCustomIcon(id: linkId, icon: .emoji("🚀"))
+        if let node = model.nodeById(linkId), case .link(let link) = node {
+            XCTAssertEqual(link.customIcon, .emoji("🚀"))
+        } else {
+            XCTFail("Expected link")
+        }
+
+        // Restore (set to nil)
+        model.setLinkCustomIcon(id: linkId, icon: nil)
+        if let node = model.nodeById(linkId), case .link(let link) = node {
+            XCTAssertNil(link.customIcon)
+        } else {
+            XCTFail("Expected link")
+        }
+    }
+
+    func testSetPinnedLinkCustomIcon() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let linkId = model.addLink(urlString: "https://a.com", title: "A", parentId: nil)
+        model.pinLink(id: linkId)
+
+        model.setPinnedLinkCustomIcon(id: linkId, icon: .sfSymbol("heart.fill"))
+        XCTAssertEqual(model.currentWorkspace.pinnedLinks[0].customIcon, .sfSymbol("heart.fill"))
+
+        model.setPinnedLinkCustomIcon(id: linkId, icon: nil)
+        XCTAssertNil(model.currentWorkspace.pinnedLinks[0].customIcon)
+    }
+
+    func testMultipleBrowserProfiles() {
+        let store = makeStore()
+        store.save(DataStore.defaultState())
+        let model = AppModel(store: store)
+
+        let workspaceId = model.currentWorkspace.id
+
+        // Set Chrome profile
+        model.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: "com.google.chrome", profile: "Profile 1")
+        // Set Firefox profile
+        model.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: "org.mozilla.firefox", profile: "default")
+
+        XCTAssertEqual(model.currentWorkspace.browserProfiles.count, 2)
+        XCTAssertEqual(model.currentWorkspace.browserProfiles["com.google.chrome"], "Profile 1")
+        XCTAssertEqual(model.currentWorkspace.browserProfiles["org.mozilla.firefox"], "default")
+
+        // Clear Chrome profile, Firefox should remain
+        model.updateWorkspaceBrowserProfile(id: workspaceId, bundleId: "com.google.chrome", profile: nil)
+        XCTAssertEqual(model.currentWorkspace.browserProfiles.count, 1)
+        XCTAssertNil(model.currentWorkspace.browserProfiles["com.google.chrome"])
+        XCTAssertEqual(model.currentWorkspace.browserProfiles["org.mozilla.firefox"], "default")
+    }
+}
