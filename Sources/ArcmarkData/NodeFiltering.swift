@@ -1,7 +1,7 @@
 import Foundation
 
-enum NodeFiltering {
-    static func filter(nodes: [Node], query: String) -> [Node] {
+public enum NodeFiltering {
+    public static func filter(nodes: [Node], query: String) -> [Node] {
         let lower = query.lowercased()
         return nodes.compactMap { node in
             switch node {

@@ -3,16 +3,16 @@ import Foundation
 // MARK: - Chrome Import Result
 
 /// Result of a Chrome bookmark import operation
-struct ChromeImportResult: Sendable {
-    let workspace: ImportWorkspace
-    let linksImported: Int
-    let foldersImported: Int
+public struct ChromeImportResult: Sendable {
+    public let workspace: ImportWorkspace
+    public let linksImported: Int
+    public let foldersImported: Int
 }
 
 // MARK: - Chrome Import Errors
 
 /// Errors that can occur during Chrome bookmark import
-enum ChromeImportError: Error {
+public enum ChromeImportError: Error {
     case fileNotFound
     case invalidHTML
     case noBookmarksFound
@@ -20,7 +20,7 @@ enum ChromeImportError: Error {
 }
 
 extension ChromeImportError: LocalizedError {
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .fileNotFound:
             return "The selected file could not be found."
@@ -36,15 +36,15 @@ extension ChromeImportError: LocalizedError {
 
 // MARK: - Chrome Import Service
 
-final class ChromeImportService: Sendable {
-    static let shared = ChromeImportService()
+public final class ChromeImportService: Sendable {
+    public static let shared = ChromeImportService()
 
-    private init() {}
+    public init() {}
 
     /// Import bookmarks from a Chrome bookmarks HTML file
     /// - Parameter fileURL: URL to the exported Chrome bookmarks HTML file
     /// - Returns: Result containing import statistics or error
-    func importFromChrome(fileURL: URL) async -> Result<ChromeImportResult, ChromeImportError> {
+    public func importFromChrome(fileURL: URL) async -> Result<ChromeImportResult, ChromeImportError> {
         await Task.yield()
 
         return await Task.detached {

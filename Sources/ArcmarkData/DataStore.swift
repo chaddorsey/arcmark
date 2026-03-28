@@ -1,21 +1,21 @@
 import Foundation
 
-final class DataStore {
+public final class DataStore {
     private let fileManager = FileManager.default
-    private let baseDirectory: URL
+    public let baseDirectory: URL
     private let dataURL: URL
 
-    init(baseDirectory: URL? = nil) {
+    public init(baseDirectory: URL? = nil) {
         if let baseDirectory {
             self.baseDirectory = baseDirectory
         } else {
-            let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             self.baseDirectory = appSupport.appendingPathComponent("Arcmark", isDirectory: true)
         }
         self.dataURL = self.baseDirectory.appendingPathComponent("data.json")
     }
 
-    func load() -> AppState {
+    public func load() -> AppState {
         ensureDirectories()
         guard fileManager.fileExists(atPath: dataURL.path) else {
             let defaultState = Self.defaultState()
@@ -35,7 +35,7 @@ final class DataStore {
         }
     }
 
-    func save(_ state: AppState) {
+    public func save(_ state: AppState) {
         ensureDirectories()
         do {
             let encoder = JSONEncoder()
@@ -47,7 +47,7 @@ final class DataStore {
         }
     }
 
-    func iconsDirectory() -> URL {
+    public func iconsDirectory() -> URL {
         let iconsURL = baseDirectory.appendingPathComponent("Icons", isDirectory: true)
         if !fileManager.fileExists(atPath: iconsURL.path) {
             try? fileManager.createDirectory(at: iconsURL, withIntermediateDirectories: true)
@@ -61,7 +61,7 @@ final class DataStore {
         }
     }
 
-    static func defaultState() -> AppState {
+    public static func defaultState() -> AppState {
         let workspace = Workspace(
             id: UUID(),
             name: "Inbox",

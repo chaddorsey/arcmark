@@ -5,20 +5,6 @@ extension Notification.Name {
     static let defaultBrowserChanged = Notification.Name("defaultBrowserChanged")
 }
 
-enum UserDefaultsKeys {
-    static let defaultBrowserBundleId = "defaultBrowserBundleId"
-    static let alwaysOnTopEnabled = "alwaysOnTopEnabled"
-    static let lastSelectedWorkspaceId = "lastSelectedWorkspaceId"
-    static let mainWindowSize = "mainWindowSize"
-    static let sidebarAttachmentEnabled = "sidebarAttachmentEnabled"
-    static let sidebarPosition = "sidebarPosition"
-    static let lastArcImportDate = "lastArcImportDate"
-    static let arcImportCount = "arcImportCount"
-    static let toggleSidebarShortcut = "toggleSidebarShortcut"
-    static let tooltipsEnabled = "tooltipsEnabled"
-    static let swipeToSwitchEnabled = "swipeToSwitchEnabled"
-}
-
 let nodePasteboardType = NSPasteboard.PasteboardType("com.arcmark.node")
 let workspacePasteboardType = NSPasteboard.PasteboardType("com.arcmark.workspace")
 

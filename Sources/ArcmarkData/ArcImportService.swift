@@ -1,5 +1,4 @@
 import Foundation
-import AppKit
 
 // MARK: - Arc Data Models
 
@@ -165,22 +164,28 @@ struct ArcTabData: Codable {
 // MARK: - Import Result Models
 
 /// Represents a workspace to be imported
-struct ImportWorkspace: Sendable {
-    let name: String
-    let colorId: WorkspaceColorId
-    let nodes: [Node]
+public struct ImportWorkspace: Sendable {
+    public let name: String
+    public let colorId: WorkspaceColorId
+    public let nodes: [Node]
+
+    public init(name: String, colorId: WorkspaceColorId, nodes: [Node]) {
+        self.name = name
+        self.colorId = colorId
+        self.nodes = nodes
+    }
 }
 
 /// Result of an Arc import operation
-struct ArcImportResult: Sendable {
-    let workspaces: [ImportWorkspace]
-    let workspacesCreated: Int
-    let linksImported: Int
-    let foldersImported: Int
+public struct ArcImportResult: Sendable {
+    public let workspaces: [ImportWorkspace]
+    public let workspacesCreated: Int
+    public let linksImported: Int
+    public let foldersImported: Int
 }
 
 /// Errors that can occur during Arc import
-enum ArcImportError: Error {
+public enum ArcImportError: Error {
     case fileNotFound
     case invalidJSON
     case noDataContainer
@@ -188,7 +193,7 @@ enum ArcImportError: Error {
 }
 
 extension ArcImportError: LocalizedError {
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .fileNotFound:
             return "Arc bookmark file not found. Please locate StorableSidebar.json in Arc's data directory."
@@ -204,17 +209,17 @@ extension ArcImportError: LocalizedError {
 
 // MARK: - Arc Import Service
 
-final class ArcImportService: Sendable {
-    static let shared = ArcImportService()
+public final class ArcImportService: Sendable {
+    public static let shared = ArcImportService()
 
-    private init() {}
+    public init() {}
 
     // MARK: - Public API
 
     /// Import bookmarks from Arc browser's StorableSidebar.json file
     /// - Parameter fileURL: URL to the Arc StorableSidebar.json file
     /// - Returns: Result containing import statistics or error
-    func importFromArc(fileURL: URL) async -> Result<ArcImportResult, ArcImportError> {
+    public func importFromArc(fileURL: URL) async -> Result<ArcImportResult, ArcImportError> {
         // Yield to allow UI to update (show loading spinner)
         await Task.yield()
 

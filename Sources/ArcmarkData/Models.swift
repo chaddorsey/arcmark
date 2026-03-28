@@ -1,19 +1,19 @@
 import Foundation
 
-struct AppState: Codable, Equatable {
-    var schemaVersion: Int
-    var workspaces: [Workspace]
-    var selectedWorkspaceId: UUID?
-    var isSettingsSelected: Bool
+public struct AppState: Codable, Equatable, Sendable {
+    public var schemaVersion: Int
+    public var workspaces: [Workspace]
+    public var selectedWorkspaceId: UUID?
+    public var isSettingsSelected: Bool
 
-    init(schemaVersion: Int, workspaces: [Workspace], selectedWorkspaceId: UUID?, isSettingsSelected: Bool) {
+    public init(schemaVersion: Int, workspaces: [Workspace], selectedWorkspaceId: UUID?, isSettingsSelected: Bool) {
         self.schemaVersion = schemaVersion
         self.workspaces = workspaces
         self.selectedWorkspaceId = selectedWorkspaceId
         self.isSettingsSelected = isSettingsSelected
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
         workspaces = try container.decode([Workspace].self, forKey: .workspaces)
@@ -22,17 +22,17 @@ struct AppState: Codable, Equatable {
     }
 }
 
-struct Workspace: Codable, Identifiable, Equatable {
-    var id: UUID
-    var name: String
-    var colorId: WorkspaceColorId
-    var items: [Node]
-    var pinnedLinks: [Link]
-    var browserProfiles: [String: String]
+public struct Workspace: Codable, Identifiable, Equatable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var colorId: WorkspaceColorId
+    public var items: [Node]
+    public var pinnedLinks: [Link]
+    public var browserProfiles: [String: String]
 
-    static let maxPinnedLinks = ThemeConstants.Sizing.pinnedTileColumns * ThemeConstants.Sizing.pinnedTileMaxRows
+    public static let maxPinnedLinks = 12
 
-    init(id: UUID, name: String, colorId: WorkspaceColorId, items: [Node], pinnedLinks: [Link] = [], browserProfiles: [String: String] = [:]) {
+    public init(id: UUID, name: String, colorId: WorkspaceColorId, items: [Node], pinnedLinks: [Link] = [], browserProfiles: [String: String] = [:]) {
         self.id = id
         self.name = name
         self.colorId = colorId
@@ -41,7 +41,7 @@ struct Workspace: Codable, Identifiable, Equatable {
         self.browserProfiles = browserProfiles
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
@@ -66,7 +66,7 @@ struct Workspace: Codable, Identifiable, Equatable {
         case browserProfile, browserProfileBundleId
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
@@ -77,7 +77,7 @@ struct Workspace: Codable, Identifiable, Equatable {
     }
 }
 
-enum CustomIcon: Codable, Equatable, Sendable {
+public enum CustomIcon: Codable, Equatable, Sendable {
     case emoji(String)
     case sfSymbol(String)
     case cachedFavicon(String)
@@ -93,7 +93,7 @@ enum CustomIcon: Codable, Equatable, Sendable {
         case cachedFavicon
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(IconType.self, forKey: .type)
         let value = try container.decode(String.self, forKey: .value)
@@ -107,7 +107,7 @@ enum CustomIcon: Codable, Equatable, Sendable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .emoji(let value):
@@ -123,37 +123,52 @@ enum CustomIcon: Codable, Equatable, Sendable {
     }
 }
 
-struct Link: Codable, Identifiable, Equatable, Sendable {
-    var id: UUID
-    var title: String
-    var url: String
-    var faviconPath: String?
-    var customIcon: CustomIcon?
+public struct Link: Codable, Identifiable, Equatable, Sendable {
+    public var id: UUID
+    public var title: String
+    public var url: String
+    public var faviconPath: String?
+    public var customIcon: CustomIcon?
+
+    public init(id: UUID, title: String, url: String, faviconPath: String? = nil, customIcon: CustomIcon? = nil) {
+        self.id = id
+        self.title = title
+        self.url = url
+        self.faviconPath = faviconPath
+        self.customIcon = customIcon
+    }
 }
 
-struct Folder: Codable, Identifiable, Equatable, Sendable {
-    var id: UUID
-    var name: String
-    var children: [Node]
-    var isExpanded: Bool
+public struct Folder: Codable, Identifiable, Equatable, Sendable {
+    public var id: UUID
+    public var name: String
+    public var children: [Node]
+    public var isExpanded: Bool
+
+    public init(id: UUID, name: String, children: [Node], isExpanded: Bool) {
+        self.id = id
+        self.name = name
+        self.children = children
+        self.isExpanded = isExpanded
+    }
 }
 
-enum Node: Codable, Identifiable, Equatable, Hashable, Sendable {
+public enum Node: Codable, Identifiable, Equatable, Hashable, Sendable {
     case folder(Folder)
     case link(Link)
 
-    enum CodingKeys: String, CodingKey {
+    public enum CodingKeys: String, CodingKey {
         case type
         case folder
         case link
     }
 
-    enum NodeType: String, Codable {
+    public enum NodeType: String, Codable, Sendable {
         case folder
         case link
     }
 
-    var id: UUID {
+    public var id: UUID {
         switch self {
         case .folder(let folder):
             return folder.id
@@ -162,7 +177,7 @@ enum Node: Codable, Identifiable, Equatable, Hashable, Sendable {
         }
     }
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .folder(let folder):
             return folder.name
@@ -171,15 +186,15 @@ enum Node: Codable, Identifiable, Equatable, Hashable, Sendable {
         }
     }
 
-    static func == (lhs: Node, rhs: Node) -> Bool {
+    public static func == (lhs: Node, rhs: Node) -> Bool {
         lhs.id == rhs.id
     }
 
-    func hash(into hasher: inout Hasher) {
+    public func hash(into hasher: inout Hasher) {
         hasher.combine(id)
     }
 
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let type = try container.decode(NodeType.self, forKey: .type)
         switch type {
@@ -192,7 +207,7 @@ enum Node: Codable, Identifiable, Equatable, Hashable, Sendable {
         }
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .folder(let folder):
@@ -205,12 +220,17 @@ enum Node: Codable, Identifiable, Equatable, Hashable, Sendable {
     }
 }
 
-struct NodeLocation: Equatable {
-    var parentId: UUID?
-    var index: Int
+public struct NodeLocation: Equatable, Sendable {
+    public var parentId: UUID?
+    public var index: Int
+
+    public init(parentId: UUID?, index: Int) {
+        self.parentId = parentId
+        self.index = index
+    }
 }
 
-enum WorkspaceMoveDirection {
+public enum WorkspaceMoveDirection: Sendable {
     case left
     case right
 }

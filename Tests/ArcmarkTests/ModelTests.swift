@@ -1,6 +1,8 @@
 import XCTest
 @testable import ArcmarkCore
+@testable import ArcmarkData
 
+@MainActor
 final class ModelTests: XCTestCase {
     private func makeStore() -> DataStore {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import ArcmarkCore
+@testable import ArcmarkData
 
 @Suite("Chrome Import Tests")
 struct ChromeImportTests {

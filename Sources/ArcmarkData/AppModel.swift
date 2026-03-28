@@ -1,13 +1,14 @@
 import Foundation
 import os
 
-final class AppModel {
+@MainActor
+public final class AppModel {
     private let store: DataStore
-    private(set) var state: AppState
-    var onChange: (() -> Void)?
+    public private(set) var state: AppState
+    public var onChange: (@MainActor () -> Void)?
     private let logger = Logger(subsystem: "com.arcmark.app", category: "model")
 
-    init(store: DataStore = DataStore()) {
+    public init(store: DataStore = DataStore()) {
         self.store = store
         self.state = store.load()
 
@@ -23,11 +24,11 @@ final class AppModel {
         }
     }
 
-    var workspaces: [Workspace] {
+    public var workspaces: [Workspace] {
         state.workspaces
     }
 
-    var currentWorkspace: Workspace {
+    public var currentWorkspace: Workspace {
         if let selected = state.selectedWorkspaceId,
            let workspace = state.workspaces.first(where: { $0.id == selected }) {
             return workspace
@@ -42,7 +43,7 @@ final class AppModel {
         return fallback
     }
 
-    func selectWorkspace(id: UUID) {
+    public func selectWorkspace(id: UUID) {
         guard state.workspaces.contains(where: { $0.id == id }) else { return }
         state.selectedWorkspaceId = id
         state.isSettingsSelected = false
@@ -50,14 +51,14 @@ final class AppModel {
         persist()
     }
 
-    func selectSettings() {
+    public func selectSettings() {
         state.isSettingsSelected = true
         state.selectedWorkspaceId = nil
         persist()
     }
 
     @discardableResult
-    func createWorkspace(name: String, colorId: WorkspaceColorId) -> UUID {
+    public func createWorkspace(name: String, colorId: WorkspaceColorId) -> UUID {
         let workspace = Workspace(id: UUID(), name: name, colorId: colorId, items: [])
         state.workspaces.append(workspace)
         state.selectedWorkspaceId = workspace.id
@@ -66,19 +67,19 @@ final class AppModel {
         return workspace.id
     }
 
-    func renameWorkspace(id: UUID, newName: String) {
+    public func renameWorkspace(id: UUID, newName: String) {
         updateWorkspace(id: id) { workspace in
             workspace.name = newName
         }
     }
 
-    func updateWorkspaceColor(id: UUID, colorId: WorkspaceColorId) {
+    public func updateWorkspaceColor(id: UUID, colorId: WorkspaceColorId) {
         updateWorkspace(id: id) { workspace in
             workspace.colorId = colorId
         }
     }
 
-    func updateWorkspaceBrowserProfile(id: UUID, bundleId: String, profile: String?) {
+    public func updateWorkspaceBrowserProfile(id: UUID, bundleId: String, profile: String?) {
         let trimmed = profile?.trimmingCharacters(in: .whitespacesAndNewlines)
         let value = (trimmed?.isEmpty ?? true) ? nil : trimmed
         updateWorkspace(id: id) { workspace in
@@ -90,7 +91,7 @@ final class AppModel {
         }
     }
 
-    func deleteWorkspace(id: UUID) {
+    public func deleteWorkspace(id: UUID) {
         guard state.workspaces.count > 1 else { return }
         state.workspaces.removeAll { $0.id == id }
         if state.selectedWorkspaceId == id {
@@ -102,7 +103,7 @@ final class AppModel {
         persist()
     }
 
-    func moveWorkspace(id: UUID, direction: WorkspaceMoveDirection) {
+    public func moveWorkspace(id: UUID, direction: WorkspaceMoveDirection) {
         guard let currentIndex = state.workspaces.firstIndex(where: { $0.id == id }) else { return }
 
         let newIndex: Int
@@ -120,7 +121,7 @@ final class AppModel {
         persist()
     }
 
-    func reorderWorkspace(id: UUID, toIndex: Int) {
+    public func reorderWorkspace(id: UUID, toIndex: Int) {
         guard let currentIndex = state.workspaces.firstIndex(where: { $0.id == id }) else { return }
         guard toIndex >= 0 && toIndex < state.workspaces.count else { return }
         guard currentIndex != toIndex else { return }
@@ -131,7 +132,7 @@ final class AppModel {
     }
 
     @discardableResult
-    func addFolder(name: String, parentId: UUID?, isExpanded: Bool = true) -> UUID {
+    public func addFolder(name: String, parentId: UUID?, isExpanded: Bool = true) -> UUID {
         let folder = Folder(id: UUID(), name: name, children: [], isExpanded: isExpanded)
         let node = Node.folder(folder)
         insertNode(node, parentId: parentId)
@@ -139,7 +140,7 @@ final class AppModel {
     }
 
     @discardableResult
-    func addLink(urlString: String, title: String, parentId: UUID?) -> UUID {
+    public func addLink(urlString: String, title: String, parentId: UUID?) -> UUID {
         let link = Link(id: UUID(), title: title, url: urlString, faviconPath: nil)
         let node = Node.link(link)
         insertNode(node, parentId: parentId)
@@ -147,7 +148,7 @@ final class AppModel {
         return link.id
     }
 
-    func renameNode(id: UUID, newName: String) {
+    public func renameNode(id: UUID, newName: String) {
         updateNode(id: id) { node in
             switch node {
             case .folder(var folder):
@@ -160,33 +161,33 @@ final class AppModel {
         }
     }
 
-    func deleteNode(id: UUID) {
+    public func deleteNode(id: UUID) {
         updateWorkspace(id: currentWorkspace.id) { workspace in
-            _ = removeNode(id: id, nodes: &workspace.items)
+            _ = self.removeNode(id: id, nodes: &workspace.items)
         }
     }
 
-    func moveNode(id: UUID, toParentId: UUID?, index: Int) {
+    public func moveNode(id: UUID, toParentId: UUID?, index: Int) {
         guard let location = findNodeLocation(id: id, nodes: currentWorkspace.items) else { return }
         if let toParentId, isDescendant(nodeId: toParentId, in: id) { return }
 
         updateWorkspace(id: currentWorkspace.id) { workspace in
-            guard let removedNode = removeNode(id: id, nodes: &workspace.items) else { return }
+            guard let removedNode = self.removeNode(id: id, nodes: &workspace.items) else { return }
 
             var targetIndex = max(0, index)
             if location.parentId == toParentId, location.index < targetIndex {
                 targetIndex -= 1
             }
 
-            insertNode(removedNode, parentId: toParentId, index: targetIndex, nodes: &workspace.items)
+            self.insertNode(removedNode, parentId: toParentId, index: targetIndex, nodes: &workspace.items)
         }
     }
 
-    func moveNodeToWorkspace(id: UUID, workspaceId: UUID) {
+    public func moveNodeToWorkspace(id: UUID, workspaceId: UUID) {
         guard workspaceId != currentWorkspace.id else { return }
         var removedNode: Node?
         updateWorkspace(id: currentWorkspace.id) { workspace in
-            removedNode = removeNode(id: id, nodes: &workspace.items)
+            removedNode = self.removeNode(id: id, nodes: &workspace.items)
         }
         guard let node = removedNode else { return }
 
@@ -195,7 +196,7 @@ final class AppModel {
         }
     }
 
-    func setFolderExpanded(id: UUID, isExpanded: Bool) {
+    public func setFolderExpanded(id: UUID, isExpanded: Bool) {
         updateNode(id: id) { node in
             switch node {
             case .folder(var folder):
@@ -207,7 +208,7 @@ final class AppModel {
         }
     }
 
-    func updateLinkFaviconPath(id: UUID, path: String?) {
+    public func updateLinkFaviconPath(id: UUID, path: String?) {
         if let node = nodeById(id), case .link(let link) = node, link.faviconPath == path {
             return
         }
@@ -222,7 +223,7 @@ final class AppModel {
         }
     }
 
-    func updateLinkUrl(id: UUID, newUrl: String) {
+    public func updateLinkUrl(id: UUID, newUrl: String) {
         updateNode(id: id) { node in
             switch node {
             case .link(var link):
@@ -235,7 +236,7 @@ final class AppModel {
         }
     }
 
-    func updateLinkTitleIfDefault(id: UUID, newTitle: String) -> Bool {
+    public func updateLinkTitleIfDefault(id: UUID, newTitle: String) -> Bool {
         let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
 
@@ -259,26 +260,26 @@ final class AppModel {
 
     // MARK: - Pinned Links
 
-    var canPinMore: Bool {
+    public var canPinMore: Bool {
         currentWorkspace.pinnedLinks.count < Workspace.maxPinnedLinks
     }
 
-    func pinnedLinkById(_ id: UUID) -> Link? {
+    public func pinnedLinkById(_ id: UUID) -> Link? {
         currentWorkspace.pinnedLinks.first(where: { $0.id == id })
     }
 
-    func pinLink(id: UUID) {
+    public func pinLink(id: UUID) {
         guard canPinMore else { return }
         guard let node = nodeById(id), case .link(let link) = node else { return }
         guard !currentWorkspace.pinnedLinks.contains(where: { $0.id == id }) else { return }
 
         updateWorkspace(id: currentWorkspace.id) { workspace in
-            _ = removeNode(id: id, nodes: &workspace.items)
+            _ = self.removeNode(id: id, nodes: &workspace.items)
             workspace.pinnedLinks.append(link)
         }
     }
 
-    func unpinLink(id: UUID) {
+    public func unpinLink(id: UUID) {
         updateWorkspace(id: currentWorkspace.id) { workspace in
             guard let index = workspace.pinnedLinks.firstIndex(where: { $0.id == id }) else { return }
             let link = workspace.pinnedLinks.remove(at: index)
@@ -286,14 +287,14 @@ final class AppModel {
         }
     }
 
-    func updatePinnedLinkFaviconPath(id: UUID, path: String?) {
+    public func updatePinnedLinkFaviconPath(id: UUID, path: String?) {
         updateWorkspace(id: currentWorkspace.id) { workspace in
             guard let index = workspace.pinnedLinks.firstIndex(where: { $0.id == id }) else { return }
             workspace.pinnedLinks[index].faviconPath = path
         }
     }
 
-    func setLinkCustomIcon(id: UUID, icon: CustomIcon?) {
+    public func setLinkCustomIcon(id: UUID, icon: CustomIcon?) {
         updateNode(id: id) { node in
             switch node {
             case .link(var link):
@@ -305,22 +306,22 @@ final class AppModel {
         }
     }
 
-    func setPinnedLinkCustomIcon(id: UUID, icon: CustomIcon?) {
+    public func setPinnedLinkCustomIcon(id: UUID, icon: CustomIcon?) {
         updateWorkspace(id: currentWorkspace.id) { workspace in
             guard let index = workspace.pinnedLinks.firstIndex(where: { $0.id == id }) else { return }
             workspace.pinnedLinks[index].customIcon = icon
         }
     }
 
-    func location(of nodeId: UUID) -> NodeLocation? {
+    public func location(of nodeId: UUID) -> NodeLocation? {
         findNodeLocation(id: nodeId, nodes: currentWorkspace.items)
     }
 
-    func nodeById(_ id: UUID) -> Node? {
+    public func nodeById(_ id: UUID) -> Node? {
         nodeById(id, nodes: currentWorkspace.items)
     }
 
-    func findNode(id: UUID, in nodes: [Node]) -> Node? {
+    public func findNode(id: UUID, in nodes: [Node]) -> Node? {
         for node in nodes {
             if node.id == id {
                 return node
@@ -333,7 +334,7 @@ final class AppModel {
         return nil
     }
 
-    func moveNodesToWorkspace(nodeIds: [UUID], toWorkspaceId: UUID) {
+    public func moveNodesToWorkspace(nodeIds: [UUID], toWorkspaceId: UUID) {
         guard toWorkspaceId != currentWorkspace.id else { return }
         guard !nodeIds.isEmpty else { return }
 
@@ -341,7 +342,7 @@ final class AppModel {
 
         updateWorkspace(id: currentWorkspace.id, notify: false) { workspace in
             for nodeId in nodeIds {
-                if let removed = removeNode(id: nodeId, nodes: &workspace.items) {
+                if let removed = self.removeNode(id: nodeId, nodes: &workspace.items) {
                     nodesToMove.append(removed)
                 }
             }
@@ -353,7 +354,7 @@ final class AppModel {
     }
 
     @discardableResult
-    func groupNodesInNewFolder(nodeIds: [UUID], folderName: String) -> UUID? {
+    public func groupNodesInNewFolder(nodeIds: [UUID], folderName: String) -> UUID? {
         guard !nodeIds.isEmpty else { return nil }
 
         // Find locations BEFORE removal to determine correct insertion point
@@ -370,7 +371,7 @@ final class AppModel {
 
         updateWorkspace(id: currentWorkspace.id, notify: false) { workspace in
             for nodeId in nodeIds {
-                if let removed = removeNode(id: nodeId, nodes: &workspace.items) {
+                if let removed = self.removeNode(id: nodeId, nodes: &workspace.items) {
                     nodesToGroup.append(removed)
                 }
             }
@@ -381,15 +382,17 @@ final class AppModel {
         let folder = Folder(id: UUID(), name: folderName, children: nodesToGroup, isExpanded: true)
 
         updateWorkspace(id: currentWorkspace.id) { workspace in
-            insertNode(.folder(folder), parentId: commonParentId, index: insertionIndex, nodes: &workspace.items)
+            self.insertNode(.folder(folder), parentId: commonParentId, index: insertionIndex, nodes: &workspace.items)
         }
 
         return folder.id
     }
 
+    // MARK: - Private Helpers
+
     private func insertNode(_ node: Node, parentId: UUID?) {
         updateWorkspace(id: currentWorkspace.id) { workspace in
-            insertNode(node, parentId: parentId, index: nil, nodes: &workspace.items)
+            self.insertNode(node, parentId: parentId, index: nil, nodes: &workspace.items)
         }
     }
 
@@ -401,7 +404,7 @@ final class AppModel {
 
     private func updateNode(id: UUID, notify: Bool = true, _ mutate: (inout Node) -> Void) {
         updateWorkspace(id: currentWorkspace.id, notify: notify) { workspace in
-            _ = updateNode(id: id, nodes: &workspace.items, mutate)
+            _ = self.updateNode(id: id, nodes: &workspace.items, mutate)
         }
     }
 

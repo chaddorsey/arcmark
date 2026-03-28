@@ -1,6 +1,8 @@
 import XCTest
 @testable import ArcmarkCore
+@testable import ArcmarkData
 
+@MainActor
 final class ArcImportTests: XCTestCase {
 
     // MARK: - Test Data Generation

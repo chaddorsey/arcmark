@@ -9,17 +9,21 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        // Library for bundler to use
+        // Foundation-only data layer for CLI and app
+        .library(name: "ArcmarkData", targets: ["ArcmarkData"]),
+        // AppKit UI layer for bundler to use
         .library(name: "ArcmarkCore", targets: ["ArcmarkCore"]),
-        // Executable for development/testing
+        // GUI executable for development/testing
         .executable(name: "Arcmark", targets: ["ArcmarkApp"])
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0")
     ],
     targets: [
-        // Core library with all app logic
-        .target(name: "ArcmarkCore", dependencies: ["Sparkle"]),
+        // Foundation-only data layer (Models, AppModel, DataStore, etc.)
+        .target(name: "ArcmarkData", dependencies: []),
+        // AppKit UI layer with all app logic
+        .target(name: "ArcmarkCore", dependencies: ["ArcmarkData", "Sparkle"]),
         // Minimal executable entry point
         .executableTarget(
             name: "ArcmarkApp",
@@ -27,7 +31,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ArcmarkTests",
-            dependencies: ["ArcmarkCore"]
+            dependencies: ["ArcmarkCore", "ArcmarkData"]
         )
     ]
 )

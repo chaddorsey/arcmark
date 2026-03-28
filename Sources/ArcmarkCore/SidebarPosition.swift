@@ -7,7 +7,7 @@
 
 import Foundation
 
-enum SidebarPosition: String, Codable {
+public enum SidebarPosition: String, Codable, Sendable {
     case left
     case right
 }
