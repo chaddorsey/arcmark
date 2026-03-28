@@ -63,6 +63,18 @@ For complete distribution workflow including DMG creation and beta testing, see 
 
 ## Architecture
 
+### Target Structure
+
+The project is organized into four Swift Package Manager targets:
+
+- **ArcmarkData** (Foundation-only library) — Models, AppModel, DataStore, NodeFiltering, import services, WorkspaceColorId, UserDefaultsKeys. Zero AppKit dependencies. Designed for consumption by both the GUI app and a future CLI tool. All types are `public`. AppModel is `@MainActor` and provides workspace-explicit method overloads (e.g., `addLink(urlString:title:parentId:inWorkspace:)`) for programmatic consumers that target a specific workspace without relying on `currentWorkspace`.
+- **ArcmarkCore** (AppKit library) — All UI components, view controllers, and AppKit services (FaviconService, LinkTitleService, BrowserManager, ThemeConstants). Depends on ArcmarkData + Sparkle. Re-exports ArcmarkData via `@_exported import`.
+- **ArcmarkApp** (GUI executable) — Minimal entry point. Depends on ArcmarkCore.
+- **ArcmarkDataTests** (test target) — Tests for the Foundation-only data layer. Validates workspace-explicit API, DataStore error propagation, import services, and model operations independently of AppKit.
+- **ArcmarkTests** (test target) — Tests that may depend on ArcmarkCore (AppKit). Currently shares the same model/import tests but also covers UI-related behavior.
+
+See [docs/LIBRARY_SPLIT.md](docs/LIBRARY_SPLIT.md) for detailed architecture of the library split.
+
 ### Data Flow Architecture
 
 The application follows a unidirectional data flow pattern:
@@ -86,7 +98,7 @@ The application follows a unidirectional data flow pattern:
 
 ### Core Data Model
 
-The data model is defined in `Models.swift`:
+The data model is defined in `Sources/ArcmarkData/Models.swift`:
 
 - **AppState** - Root container holding workspaces and selected workspace ID
 - **Workspace** - Named container with emoji, color, and hierarchical items
@@ -231,6 +243,8 @@ WorkspaceColorId enum defines 8 color themes (Blush, Apricot, Butter, Leaf, Mint
 - The drag and drop is disabled when searching/filtering
 
 ### Testing
+- **ArcmarkDataTests** — Tests the Foundation-only data layer: model operations, workspace-explicit API, DataStore error propagation (trySave/tryLoad), import services. Run with `swift test --filter ArcmarkDataTests`.
+- **ArcmarkTests** — Tests that may depend on ArcmarkCore (AppKit). Run with `swift test --filter ArcmarkTests`.
 - Tests use temporary directory for DataStore to avoid polluting real data
 - Model operations tested via AppModel integration (not isolated units)
 - Tests verify both state mutation and JSON round-trip encoding

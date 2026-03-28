@@ -52,7 +52,7 @@ public final class DataStore {
     /// Load state, propagating errors instead of silently falling back to defaults.
     /// Use this in CLI contexts where silent data loss is unacceptable.
     public func tryLoad() throws -> AppState {
-        ensureDirectories()
+        try tryEnsureDirectories()
         guard fileManager.fileExists(atPath: dataURL.path) else {
             let defaultState = Self.defaultState()
             try trySave(defaultState)
@@ -67,7 +67,7 @@ public final class DataStore {
     /// Save state, propagating errors instead of silently swallowing them.
     /// Use this in CLI contexts where failed writes must produce non-zero exit codes.
     public func trySave(_ state: AppState) throws {
-        ensureDirectories()
+        try tryEnsureDirectories()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(state)
@@ -82,6 +82,12 @@ public final class DataStore {
             try? fileManager.createDirectory(at: iconsURL, withIntermediateDirectories: true)
         }
         return iconsURL
+    }
+
+    private func tryEnsureDirectories() throws {
+        if !fileManager.fileExists(atPath: baseDirectory.path) {
+            try fileManager.createDirectory(at: baseDirectory, withIntermediateDirectories: true)
+        }
     }
 
     private func ensureDirectories() {

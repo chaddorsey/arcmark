@@ -30,6 +30,7 @@ public struct Workspace: Codable, Identifiable, Equatable, Sendable {
     public var pinnedLinks: [Link]
     public var browserProfiles: [String: String]
 
+    /// Maximum pinned links per workspace. Must match ThemeConstants.Sizing.pinnedTileColumns (4) * pinnedTileMaxRows (3).
     public static let maxPinnedLinks = 12
 
     public init(id: UUID, name: String, colorId: WorkspaceColorId, items: [Node], pinnedLinks: [Link] = [], browserProfiles: [String: String] = [:]) {

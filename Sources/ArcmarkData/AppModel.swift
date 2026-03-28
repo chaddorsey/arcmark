@@ -169,9 +169,6 @@ public final class AppModel {
     }
 
     public func updateLinkFaviconPath(id: UUID, path: String?) {
-        if let node = nodeById(id), case .link(let link) = node, link.faviconPath == path {
-            return
-        }
         updateLinkFaviconPath(id: id, path: path, inWorkspace: currentWorkspace.id)
     }
 
@@ -180,25 +177,7 @@ public final class AppModel {
     }
 
     public func updateLinkTitleIfDefault(id: UUID, newTitle: String) -> Bool {
-        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-
-        guard let node = nodeById(id), case .link(let link) = node else { return false }
-        let defaultTitle = URL(string: link.url)?.host ?? link.url
-        guard link.title == defaultTitle else { return false }
-        guard link.title != trimmed else { return false }
-
-        updateNodeInWorkspace(id: id, inWorkspace: currentWorkspace.id) { node in
-            switch node {
-            case .link(var link):
-                link.title = trimmed
-                node = .link(link)
-            case .folder:
-                break
-            }
-        }
-        logger.debug("Updated title for \(link.url, privacy: .public) -> \(trimmed, privacy: .public)")
-        return true
+        updateLinkTitleIfDefault(id: id, newTitle: newTitle, inWorkspace: currentWorkspace.id)
     }
 
     public func setLinkCustomIcon(id: UUID, icon: CustomIcon?) {
@@ -320,8 +299,9 @@ public final class AppModel {
 
     public func moveNodeToWorkspace(id: UUID, toWorkspaceId: UUID, fromWorkspace sourceWorkspaceId: UUID) {
         guard toWorkspaceId != sourceWorkspaceId else { return }
+        guard state.workspaces.contains(where: { $0.id == toWorkspaceId }) else { return }
         var removedNode: Node?
-        updateWorkspace(id: sourceWorkspaceId) { workspace in
+        updateWorkspace(id: sourceWorkspaceId, notify: false) { workspace in
             removedNode = self.removeNode(id: id, nodes: &workspace.items)
         }
         guard let node = removedNode else { return }
@@ -344,6 +324,9 @@ public final class AppModel {
     }
 
     public func updateLinkFaviconPath(id: UUID, path: String?, inWorkspace workspaceId: UUID) {
+        if let node = nodeById(id, inWorkspace: workspaceId), case .link(let link) = node, link.faviconPath == path {
+            return
+        }
         updateNodeInWorkspace(id: id, inWorkspace: workspaceId) { node in
             switch node {
             case .link(var link):
@@ -378,6 +361,29 @@ public final class AppModel {
                 break
             }
         }
+    }
+
+    @discardableResult
+    public func updateLinkTitleIfDefault(id: UUID, newTitle: String, inWorkspace workspaceId: UUID) -> Bool {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+
+        guard let node = nodeById(id, inWorkspace: workspaceId), case .link(let link) = node else { return false }
+        let defaultTitle = URL(string: link.url)?.host ?? link.url
+        guard link.title == defaultTitle else { return false }
+        guard link.title != trimmed else { return false }
+
+        updateNodeInWorkspace(id: id, inWorkspace: workspaceId) { node in
+            switch node {
+            case .link(var link):
+                link.title = trimmed
+                node = .link(link)
+            case .folder:
+                break
+            }
+        }
+        logger.debug("Updated title for \(link.url, privacy: .public) -> \(trimmed, privacy: .public)")
+        return true
     }
 
     public func pinLink(id: UUID, inWorkspace workspaceId: UUID) {
@@ -417,6 +423,7 @@ public final class AppModel {
     public func moveNodesToWorkspace(nodeIds: [UUID], toWorkspaceId: UUID, fromWorkspace sourceWorkspaceId: UUID) {
         guard toWorkspaceId != sourceWorkspaceId else { return }
         guard !nodeIds.isEmpty else { return }
+        guard state.workspaces.contains(where: { $0.id == toWorkspaceId }) else { return }
 
         var nodesToMove: [Node] = []
 
@@ -480,6 +487,16 @@ public final class AppModel {
     public func location(of nodeId: UUID, inWorkspace workspaceId: UUID) -> NodeLocation? {
         guard let ws = state.workspaces.first(where: { $0.id == workspaceId }) else { return nil }
         return findNodeLocation(id: nodeId, nodes: ws.items)
+    }
+
+    public func canPinMore(inWorkspace workspaceId: UUID) -> Bool {
+        guard let ws = state.workspaces.first(where: { $0.id == workspaceId }) else { return false }
+        return ws.pinnedLinks.count < Workspace.maxPinnedLinks
+    }
+
+    public func pinnedLinkById(_ id: UUID, inWorkspace workspaceId: UUID) -> Link? {
+        guard let ws = state.workspaces.first(where: { $0.id == workspaceId }) else { return nil }
+        return ws.pinnedLinks.first(where: { $0.id == id })
     }
 
     // MARK: - Private Helpers
@@ -603,11 +620,6 @@ public final class AppModel {
             }
         }
         return nil
-    }
-
-    private func isDescendant(nodeId: UUID, in potentialAncestorId: UUID) -> Bool {
-        guard let ancestor = nodeById(potentialAncestorId, nodes: currentWorkspace.items) else { return false }
-        return containsNode(nodeId, within: ancestor)
     }
 
     private func isDescendant(nodeId: UUID, in potentialAncestorId: UUID, nodes: [Node]) -> Bool {
