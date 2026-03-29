@@ -151,11 +151,7 @@ struct LinkGroup: AsyncParsableCommand {
             let model = try await globals.makeModel()
             let state = await model.state
 
-            let ws = if let wsRef = workspace {
-                try ReferenceResolver.resolveWorkspace(wsRef, in: state)
-            } else {
-                state.workspaces.first!
-            }
+            let ws = try resolveWorkspaceOrFirst(workspace, in: state)
 
             let parentId: UUID?
             if let folderPath = folder {
@@ -225,6 +221,10 @@ struct LinkGroup: AsyncParsableCommand {
             let ws = try resolveWorkspaceOrFirst(workspace, in: state)
             let nodeResult = try ReferenceResolver.resolveNode(ref, in: ws)
 
+            guard case .link = nodeResult.node else {
+                throw CLIError.validationFailed(message: "'\(ref)' is a folder, not a link. Use 'folder rename' instead.")
+            }
+
             if globals.dryRun {
                 let result = DryRunResult(
                     action: "link.rename",
@@ -235,7 +235,11 @@ struct LinkGroup: AsyncParsableCommand {
                 return
             }
 
-            await model.renameNode(id: nodeResult.node.id, newName: newTitle, inWorkspace: ws.id)
+            if nodeResult.isPinned {
+                await model.renamePinnedLink(id: nodeResult.node.id, newName: newTitle, inWorkspace: ws.id)
+            } else {
+                await model.renameNode(id: nodeResult.node.id, newName: newTitle, inWorkspace: ws.id)
+            }
             OutputFormatter.print(
                 MutationOutput(entity: ["id": nodeResult.node.id.uuidString, "title": newTitle], message: "Renamed to '\(newTitle)'"),
                 format: format
@@ -271,6 +275,10 @@ struct LinkGroup: AsyncParsableCommand {
             let ws = try resolveWorkspaceOrFirst(workspace, in: state)
             let nodeResult = try ReferenceResolver.resolveNode(ref, in: ws)
 
+            guard case .link = nodeResult.node else {
+                throw CLIError.validationFailed(message: "'\(ref)' is a folder, not a link. Use 'folder' commands instead.")
+            }
+
             if globals.dryRun {
                 let result = DryRunResult(
                     action: "link.edit-url",
@@ -281,7 +289,11 @@ struct LinkGroup: AsyncParsableCommand {
                 return
             }
 
-            await model.updateLinkUrl(id: nodeResult.node.id, newUrl: newURL, inWorkspace: ws.id)
+            if nodeResult.isPinned {
+                await model.updatePinnedLinkUrl(id: nodeResult.node.id, newUrl: newURL, inWorkspace: ws.id)
+            } else {
+                await model.updateLinkUrl(id: nodeResult.node.id, newUrl: newURL, inWorkspace: ws.id)
+            }
             OutputFormatter.print(
                 MutationOutput(entity: ["id": nodeResult.node.id.uuidString, "url": newURL], message: "Updated URL to '\(newURL)'"),
                 format: format
@@ -311,6 +323,10 @@ struct LinkGroup: AsyncParsableCommand {
 
             let ws = try resolveWorkspaceOrFirst(workspace, in: state)
             let nodeResult = try ReferenceResolver.resolveNode(ref, in: ws)
+
+            guard case .link = nodeResult.node else {
+                throw CLIError.validationFailed(message: "'\(ref)' is a folder, not a link. Use 'folder delete' instead.")
+            }
 
             if globals.dryRun {
                 let result = DryRunResult(
@@ -365,6 +381,10 @@ struct LinkGroup: AsyncParsableCommand {
 
             let sourceWs = try resolveWorkspaceOrFirst(from, in: state)
             let nodeResult = try ReferenceResolver.resolveNode(ref, in: sourceWs)
+
+            guard case .link = nodeResult.node else {
+                throw CLIError.validationFailed(message: "'\(ref)' is a folder, not a link. Use 'folder move' instead.")
+            }
 
             if globals.dryRun {
                 let targetDesc = workspace != nil ? "workspace '\(workspace!)'" : (folder != nil ? "folder '\(folder!)'" : "root")

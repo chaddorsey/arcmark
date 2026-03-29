@@ -62,8 +62,8 @@ struct DedupeCommand: AsyncParsableCommand {
         var deleted = 0
         for (_, entries) in dupeGroups {
             for entry in entries.dropFirst() {
-                let wsId = UUID(uuidString: entry.workspaceId)!
-                let nodeId = UUID(uuidString: entry.id)!
+                guard let wsId = UUID(uuidString: entry.workspaceId),
+                      let nodeId = UUID(uuidString: entry.id) else { continue }
                 if entry.pinned {
                     await model.unpinLink(id: nodeId, inWorkspace: wsId)
                 }

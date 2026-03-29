@@ -28,11 +28,14 @@ enum TitleFetcher {
                 return nil
             }
 
-            let cleaned = title
+            var cleaned = decodeHTMLEntities(title)
                 .replacingOccurrences(of: "\n", with: " ")
                 .replacingOccurrences(of: "\t", with: " ")
-                .replacingOccurrences(of: "  ", with: " ")
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // Collapse runs of whitespace (not just pairs)
+            while cleaned.contains("  ") {
+                cleaned = cleaned.replacingOccurrences(of: "  ", with: " ")
+            }
+            cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
 
             return cleaned.isEmpty ? nil : cleaned
         } catch {
@@ -58,5 +61,41 @@ enum TitleFetcher {
         guard let endRange = lower.range(of: "</title>", range: tagEndRange.upperBound..<lower.endIndex) else { return nil }
         let rawTitle = html[tagEndRange.upperBound..<endRange.lowerBound]
         return String(rawTitle)
+    }
+
+    /// Decode common HTML entities. Handles named entities and numeric (decimal + hex) references.
+    private static func decodeHTMLEntities(_ string: String) -> String {
+        var result = string
+        // Named entities
+        let named: [String: String] = [
+            "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&apos;": "'",
+            "&#39;": "'", "&nbsp;": " ", "&mdash;": "\u{2014}", "&ndash;": "\u{2013}",
+            "&laquo;": "\u{00AB}", "&raquo;": "\u{00BB}", "&copy;": "\u{00A9}",
+            "&reg;": "\u{00AE}", "&trade;": "\u{2122}", "&hellip;": "\u{2026}",
+        ]
+        for (entity, char) in named {
+            result = result.replacingOccurrences(of: entity, with: char)
+        }
+        // Numeric decimal: &#123;
+        while let range = result.range(of: #"&#(\d+);"#, options: .regularExpression) {
+            let match = String(result[range])
+            let digits = match.dropFirst(2).dropLast(1)
+            if let code = UInt32(digits), let scalar = Unicode.Scalar(code) {
+                result.replaceSubrange(range, with: String(scalar))
+            } else {
+                break
+            }
+        }
+        // Numeric hex: &#x1F4A9;
+        while let range = result.range(of: #"&#x([0-9a-fA-F]+);"#, options: .regularExpression) {
+            let match = String(result[range])
+            let hex = match.dropFirst(3).dropLast(1)
+            if let code = UInt32(hex, radix: 16), let scalar = Unicode.Scalar(code) {
+                result.replaceSubrange(range, with: String(scalar))
+            } else {
+                break
+            }
+        }
+        return result
     }
 }

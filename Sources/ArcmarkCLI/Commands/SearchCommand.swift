@@ -23,6 +23,7 @@ struct SearchCommand: AsyncParsableCommand {
     var urlsOnly = false
 
     mutating func run() async throws {
+        try InputValidator.validateNotEmpty(query, field: "query")
         if let limit, limit < 1 {
             throw CLIError.invalidInput(field: "limit", value: String(limit), reason: "must be a positive integer")
         }

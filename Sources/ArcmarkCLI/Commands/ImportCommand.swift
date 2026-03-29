@@ -44,6 +44,9 @@ struct ImportCommand: AsyncParsableCommand {
     }
 
     private func importArc(fileURL: URL, model: AppModel, format: OutputFormat) async throws {
+        if workspace != nil {
+            throw CLIError.validationFailed(message: "--workspace is not supported with arc format. Arc import creates workspaces from the Arc sidebar structure.")
+        }
         let service = ArcImportService()
         let result = await service.importFromArc(fileURL: fileURL)
 
@@ -119,19 +122,35 @@ struct ImportCommand: AsyncParsableCommand {
 
     private func importTxt(fileURL: URL, model: AppModel, format: OutputFormat) async throws {
         let contents = try String(contentsOf: fileURL, encoding: .utf8)
-        let urls = contents.components(separatedBy: .newlines)
+        let allLines = contents.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty && URL(string: $0) != nil }
+
+        // Filter to http/https URLs only (reject javascript:, file:, data:, etc.)
+        var skipped = 0
+        var urls: [String] = []
+        for line in allLines {
+            if let url = URL(string: line), let scheme = url.scheme?.lowercased(),
+               scheme == "http" || scheme == "https" {
+                urls.append(line)
+            } else {
+                skipped += 1
+            }
+        }
 
         if urls.isEmpty {
             throw CLIError.validationFailed(message: "No valid URLs found in file.")
         }
 
         if globals.dryRun {
+            var warnings: [String] = []
+            if skipped > 0 {
+                warnings.append("\(skipped) non-http(s) URL(s) will be skipped.")
+            }
             let result = DryRunResult(
                 action: "import.txt",
                 description: "Import \(urls.count) URL(s) from plain text file",
-                valid: true, warnings: []
+                valid: true, warnings: warnings
             )
             OutputFormatter.print(result, format: format)
             return

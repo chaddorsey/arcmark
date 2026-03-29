@@ -420,6 +420,21 @@ public final class AppModel {
         }
     }
 
+    public func renamePinnedLink(id: UUID, newName: String, inWorkspace workspaceId: UUID) {
+        updateWorkspace(id: workspaceId) { workspace in
+            guard let index = workspace.pinnedLinks.firstIndex(where: { $0.id == id }) else { return }
+            workspace.pinnedLinks[index].title = newName
+        }
+    }
+
+    public func updatePinnedLinkUrl(id: UUID, newUrl: String, inWorkspace workspaceId: UUID) {
+        updateWorkspace(id: workspaceId) { workspace in
+            guard let index = workspace.pinnedLinks.firstIndex(where: { $0.id == id }) else { return }
+            workspace.pinnedLinks[index].url = newUrl
+            workspace.pinnedLinks[index].faviconPath = nil
+        }
+    }
+
     public func updatePinnedLinkFaviconPath(id: UUID, path: String?, inWorkspace workspaceId: UUID) {
         updateWorkspace(id: workspaceId) { workspace in
             guard let index = workspace.pinnedLinks.firstIndex(where: { $0.id == id }) else { return }

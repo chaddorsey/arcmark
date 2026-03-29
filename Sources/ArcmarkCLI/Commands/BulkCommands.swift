@@ -10,7 +10,7 @@ struct GroupCommand: AsyncParsableCommand {
 
     @OptionGroup var globals: GlobalOptions
 
-    @Argument(parsing: .captureForPassthrough, help: "Node references to group (UUIDs or titles).")
+    @Argument(parsing: .remaining, help: "Node references to group (UUIDs or titles).")
     var refs: [String]
 
     @Option(name: .long, help: "Name for the new folder.")
@@ -64,7 +64,7 @@ struct BulkMoveCommand: AsyncParsableCommand {
 
     @OptionGroup var globals: GlobalOptions
 
-    @Argument(parsing: .captureForPassthrough, help: "Node references to move (UUIDs or titles).")
+    @Argument(parsing: .remaining, help: "Node references to move (UUIDs or titles).")
     var refs: [String]
 
     @Option(name: .long, help: "Target workspace (UUID or name).")
@@ -83,6 +83,10 @@ struct BulkMoveCommand: AsyncParsableCommand {
 
         let sourceWs = try resolveWorkspaceOrFirst(from, in: state)
         let targetWs = try ReferenceResolver.resolveWorkspace(workspace, in: state)
+
+        if sourceWs.id == targetWs.id {
+            throw CLIError.validationFailed(message: "Source and target workspace are the same ('\(sourceWs.name)'). Use 'link move' or 'folder move' for intra-workspace moves.")
+        }
 
         var nodeIds: [UUID] = []
         for ref in refs {
