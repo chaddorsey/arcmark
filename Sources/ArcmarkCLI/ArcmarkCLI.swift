@@ -27,6 +27,7 @@ struct ArcmarkCommand: AsyncParsableCommand {
         version: cliVersion,
         subcommands: [
             WorkspaceGroup.self,
+            LinkGroup.self,
         ]
     )
 }
