@@ -29,6 +29,10 @@ struct ArcmarkCommand: AsyncParsableCommand {
             WorkspaceGroup.self,
             LinkGroup.self,
             FolderGroup.self,
+            SearchCommand.self,
+            ImportCommand.self,
+            ExportCommand.self,
+            DedupeCommand.self,
             GroupCommand.self,
             BulkMoveCommand.self,
         ]
