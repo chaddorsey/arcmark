@@ -35,6 +35,7 @@ struct ArcmarkCommand: AsyncParsableCommand {
             DedupeCommand.self,
             GroupCommand.self,
             BulkMoveCommand.self,
+            SchemaCommand.self,
         ]
     )
 }
