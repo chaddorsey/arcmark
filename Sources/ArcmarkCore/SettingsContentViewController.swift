@@ -641,10 +641,9 @@ final class SettingsContentViewController: NSViewController {
         let swipeToSwitchEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.swipeToSwitchEnabled)
         swipeToSwitchToggle.isOn = swipeToSwitchEnabled
 
-        // Load Arc ATC suffixes state
+        // Load Arc ATC suffixes state (visibility updated after loadBrowsers populates the popup)
         let arcATCEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.arcATCSuffixesEnabled)
         arcATCToggle.isOn = arcATCEnabled
-        updateATCToggleVisibility()
 
         // Apply mutual exclusion and enable states
         updateControlStates()
@@ -677,6 +676,9 @@ final class SettingsContentViewController: NSViewController {
 
         // Update the title color after selection
         updateBrowserPopupAppearance()
+
+        // Now that the popup has a selection, update ATC toggle enabled state
+        updateATCToggleVisibility()
     }
 
     private func updateBrowserPopupAppearance() {
