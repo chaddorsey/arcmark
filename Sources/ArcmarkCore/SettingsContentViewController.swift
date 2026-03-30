@@ -770,11 +770,14 @@ final class SettingsContentViewController: NSViewController {
     @objc private func attachSidebarChanged() {
         let enabled = attachSidebarToggle.isOn
 
-        // Check permissions
+        // Check permissions — if not granted, show alert AND trigger system prompt
         if enabled && !WindowAttachmentService.shared.checkAccessibilityPermissions() {
+            // Trigger the system Accessibility prompt (opens System Settings)
+            WindowAttachmentService.shared.requestAccessibilityPermissions()
+
             let alert = NSAlert()
             alert.messageText = "Accessibility Permissions Required"
-            alert.informativeText = "Arcmark needs Accessibility permissions to attach to windows. Please grant access in System Settings."
+            alert.informativeText = "Arcmark needs Accessibility permissions to attach to windows. Please grant access in System Settings, then toggle this setting again."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
             alert.runModal()
