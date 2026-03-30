@@ -34,6 +34,7 @@ final class MainViewController: NSViewController {
 
     // State
     private var isReloadScheduled = false
+    private var pendingExternalReload = false
     private var hasLoaded = false
     private var lastWorkspaceId: UUID?
     private var pendingWorkspaceRenameId: UUID?
@@ -301,6 +302,14 @@ final class MainViewController: NSViewController {
             }
         }
 
+        nodeListViewController.onDragEnded = { [weak self] in
+            self?.flushPendingReload()
+        }
+
+        nodeListViewController.onInlineRenameEnded = { [weak self] in
+            self?.flushPendingReload()
+        }
+
         nodeListViewController.onNewFolderRequested = { [weak self] parentId in
             self?.createFolderAndBeginRename(parentId: parentId)
         }
@@ -353,6 +362,15 @@ final class MainViewController: NSViewController {
     private func bindModel() {
         model.onChange = { [weak self] in
             guard let self else { return }
+
+            // Defer reload if an in-flight operation is active
+            if self.isSwipeAnimating ||
+               self.nodeListViewController.isDraggingItems ||
+               self.nodeListViewController.inlineRenameNodeId != nil {
+                self.pendingExternalReload = true
+                return
+            }
+
             if self.isReloadScheduled { return }
             self.isReloadScheduled = true
             DispatchQueue.main.async { [weak self] in
@@ -361,6 +379,20 @@ final class MainViewController: NSViewController {
                 self.reloadData()
             }
         }
+    }
+
+    /// Flush any deferred reload from an external file change.
+    /// Call this when drag-and-drop, inline rename, or swipe animation completes.
+    private func flushPendingReload() {
+        // Check AppModel's pending flag (for reloads that arrived while onChange was nil during swipe)
+        if model.pendingReloadFromDisk {
+            model.clearPendingReload()
+            pendingExternalReload = true
+        }
+
+        guard pendingExternalReload else { return }
+        pendingExternalReload = false
+        reloadData()
     }
 
     // MARK: - Data Reload
@@ -1014,6 +1046,7 @@ extension MainViewController: SwipeGestureServiceDelegate {
             self.workspaceContentStack.isHidden = false
             self.suppressNodeAnimations = false
             self.isSwipeAnimating = false
+            self.flushPendingReload()
         })
     }
 
@@ -1104,6 +1137,7 @@ extension MainViewController: SwipeGestureServiceDelegate {
             previewSnapshotView.removeFromSuperview()
             self?.workspaceContentStack.isHidden = false
             self?.isSwipeAnimating = false
+            self?.flushPendingReload()
         })
     }
 
@@ -1129,6 +1163,7 @@ extension MainViewController: SwipeGestureServiceDelegate {
             layer.transform = CATransform3DIdentity
             self?.isSwipeAnimating = false
             self?.removeSwipePreview()
+            self?.flushPendingReload()
         }
         layer.add(spring, forKey: "springBounce")
         CATransaction.commit()

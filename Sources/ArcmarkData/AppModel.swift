@@ -9,20 +9,58 @@ public final class AppModel {
     private let logger = Logger(subsystem: "com.arcmark.app", category: "model")
     private let defaults: UserDefaults?
 
+    /// True when `reloadFromDisk()` was called but `onChange` was nil (e.g., during swipe animation).
+    /// The UI should check this flag when restoring `onChange` and trigger a reload if set.
+    public private(set) var pendingReloadFromDisk = false
+
     public init(store: DataStore = DataStore(), defaults: UserDefaults? = .standard) {
         self.store = store
         self.defaults = defaults
         self.state = store.load()
         restoreSelectedWorkspace()
+        if defaults != nil {
+            // GUI mode — start watching for external file changes
+            store.onExternalChange = { [weak self] in
+                self?.reloadFromDisk()
+            }
+            store.startWatching()
+        }
     }
 
     /// Throwing initializer for CLI use — propagates data corruption errors instead of silently
     /// falling back to default state. Use this when silent data loss is unacceptable.
+    /// CLI mode does not start file watching.
     public init(store: DataStore, defaults: UserDefaults? = nil, throwing: Bool) throws {
         self.store = store
         self.defaults = defaults
         self.state = try store.tryLoad()
         restoreSelectedWorkspace()
+    }
+
+    /// Reload state from disk, replacing in-memory state. Preserves the current selectedWorkspaceId
+    /// if the workspace still exists. Fires `onChange` to refresh the UI.
+    /// If `onChange` is nil (e.g., during swipe animation), sets `pendingReloadFromDisk` flag.
+    public func reloadFromDisk() {
+        let previousSelectedId = state.selectedWorkspaceId
+        state = store.load()
+
+        // Preserve the user's current workspace selection if it still exists
+        if let previousSelectedId,
+           state.workspaces.contains(where: { $0.id == previousSelectedId }) {
+            state.selectedWorkspaceId = previousSelectedId
+        }
+
+        if let onChange {
+            onChange()
+            pendingReloadFromDisk = false
+        } else {
+            pendingReloadFromDisk = true
+        }
+    }
+
+    /// Clear the pending reload flag. Called by the UI after handling the deferred reload.
+    public func clearPendingReload() {
+        pendingReloadFromDisk = false
     }
 
     private func restoreSelectedWorkspace() {

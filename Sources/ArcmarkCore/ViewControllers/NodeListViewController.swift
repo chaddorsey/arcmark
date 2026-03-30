@@ -21,7 +21,7 @@ final class NodeListViewController: NSViewController {
 
     private var visibleRows: [NodeListRow] = []
     private var contextIndexPath: IndexPath?
-    private var isDraggingItems = false
+    private(set) var isDraggingItems = false
     private var pendingInsertedIds: Set<UUID> = []
     private let rowAnimationDuration: TimeInterval = 0.16
     private let rowAnimationOffset: CGFloat = 10
@@ -39,6 +39,8 @@ final class NodeListViewController: NSViewController {
     // Callbacks
     var onNodeSelected: ((UUID) -> Void)?
     var onFolderToggled: ((UUID, Bool) -> Void)?
+    var onDragEnded: (() -> Void)?
+    var onInlineRenameEnded: (() -> Void)?
     var onNodeMoved: ((UUID, UUID?, Int) -> Void)?
     var onNodeDeleted: ((UUID) -> Void)?
     var onNodeRenamed: ((UUID, String) -> Void)?
@@ -457,8 +459,12 @@ final class NodeListViewController: NSViewController {
     }
 
     private func clearInlineRenameState() {
+        let wasRenaming = inlineRenameNodeId != nil
         inlineRenameItem = nil
         inlineRenameNodeId = nil
+        if wasRenaming {
+            onInlineRenameEnded?()
+        }
     }
 
     private func toggleSelection(for nodeId: UUID) {
@@ -749,6 +755,7 @@ extension NodeListViewController: NSCollectionViewDelegate {
         isDraggingItems = false
         NodeRowView.isDragging = false
         hideDropIndicator()
+        onDragEnded?()
     }
 
     func collectionView(_ collectionView: NSCollectionView,
