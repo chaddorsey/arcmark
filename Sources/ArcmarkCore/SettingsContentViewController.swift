@@ -877,7 +877,7 @@ final class SettingsContentViewController: NSViewController {
     private func updateATCToggleVisibility() {
         let selectedBundleId = browserPopup.selectedItem?.representedObject as? String ?? ""
         let isArc = selectedBundleId == "company.thebrowser.Browser"
-        arcATCToggle.isHidden = !isArc
+        arcATCToggle.isEnabled = isArc
     }
 
     @objc private func openAccessibilitySettings() {
