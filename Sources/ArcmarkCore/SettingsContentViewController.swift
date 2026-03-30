@@ -21,6 +21,7 @@ final class SettingsContentViewController: NSViewController {
     // Browser section
     private let browserPopupContainer = NSView()
     private let browserPopup = NSPopUpButton()
+    private let arcATCToggle = CustomToggle(title: "Add Arc ATC suffixes")
     private var browsers: [BrowserInfo] = []
 
     // Window settings section - custom components
@@ -373,6 +374,10 @@ final class SettingsContentViewController: NSViewController {
         contentView.addSubview(browserHeader)
         contentView.addSubview(browserPopupContainer)
         browserPopupContainer.addSubview(browserPopup)
+        arcATCToggle.translatesAutoresizingMaskIntoConstraints = false
+        arcATCToggle.target = self
+        arcATCToggle.action = #selector(arcATCSuffixesChanged)
+        contentView.addSubview(arcATCToggle)
         contentView.addSubview(separator3)
         contentView.addSubview(permissionsHeader)
         contentView.addSubview(permissionStatusLabel)
@@ -489,10 +494,16 @@ final class SettingsContentViewController: NSViewController {
             browserPopup.trailingAnchor.constraint(equalTo: browserPopupContainer.trailingAnchor, constant: -12),
             browserPopup.centerYAnchor.constraint(equalTo: browserPopupContainer.centerYAnchor),
 
+            // Arc ATC Toggle (below browser popup, only visible when Arc is selected)
+            arcATCToggle.leadingAnchor.constraint(equalTo: browserHeader.leadingAnchor),
+            arcATCToggle.topAnchor.constraint(equalTo: browserPopupContainer.bottomAnchor, constant: itemSpacing),
+            arcATCToggle.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
+            arcATCToggle.heightAnchor.constraint(equalToConstant: 28),
+
             // Separator 3
             separator3.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
             separator3.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            separator3.topAnchor.constraint(equalTo: browserPopupContainer.bottomAnchor, constant: sectionSpacing),
+            separator3.topAnchor.constraint(equalTo: arcATCToggle.bottomAnchor, constant: sectionSpacing),
             separator3.heightAnchor.constraint(equalToConstant: 1),
 
             // Permissions Header
@@ -629,6 +640,11 @@ final class SettingsContentViewController: NSViewController {
         // Load swipe to switch state
         let swipeToSwitchEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.swipeToSwitchEnabled)
         swipeToSwitchToggle.isOn = swipeToSwitchEnabled
+
+        // Load Arc ATC suffixes state
+        let arcATCEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.arcATCSuffixesEnabled)
+        arcATCToggle.isOn = arcATCEnabled
+        updateATCToggleVisibility()
 
         // Apply mutual exclusion and enable states
         updateControlStates()
@@ -840,6 +856,9 @@ final class SettingsContentViewController: NSViewController {
             // Refresh workspace list so profile icons reflect the new browser
             reloadWorkspaces()
 
+            // Update Arc ATC toggle visibility
+            updateATCToggleVisibility()
+
             // Notify about browser change
             NotificationCenter.default.post(
                 name: .defaultBrowserChanged,
@@ -847,6 +866,18 @@ final class SettingsContentViewController: NSViewController {
                 userInfo: ["bundleId": bundleId]
             )
         }
+    }
+
+    @objc private func arcATCSuffixesChanged() {
+        let enabled = arcATCToggle.isOn
+        UserDefaults.standard.set(enabled, forKey: UserDefaultsKeys.arcATCSuffixesEnabled)
+        NotificationCenter.default.post(name: .arcATCSuffixesSettingChanged, object: nil)
+    }
+
+    private func updateATCToggleVisibility() {
+        let selectedBundleId = browserPopup.selectedItem?.representedObject as? String ?? ""
+        let isArc = selectedBundleId == "company.thebrowser.Browser"
+        arcATCToggle.isHidden = !isArc
     }
 
     @objc private func openAccessibilitySettings() {
