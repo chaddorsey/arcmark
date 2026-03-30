@@ -59,7 +59,9 @@ final class WindowAttachmentService {
     func enable(browserBundleId: String, position: SidebarPosition) {
         guard checkAccessibilityPermissions() else {
             print("WindowAttachmentService: Accessibility permissions not granted")
-            requestAccessibilityPermissions()
+            // Don't prompt here — let the Settings UI handle prompting.
+            // This path is hit on app launch when permissions were revoked or
+            // the code signing identity changed.
             return
         }
 
