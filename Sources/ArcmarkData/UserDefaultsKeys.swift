@@ -12,4 +12,5 @@ public enum UserDefaultsKeys {
     public static let toggleSidebarShortcut = "toggleSidebarShortcut"
     public static let tooltipsEnabled = "tooltipsEnabled"
     public static let swipeToSwitchEnabled = "swipeToSwitchEnabled"
+    public static let arcATCSuffixesEnabled = "arcATCSuffixesEnabled"
 }

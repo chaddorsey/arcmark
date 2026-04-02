@@ -21,6 +21,7 @@ final class SettingsContentViewController: NSViewController {
     // Browser section
     private let browserPopupContainer = NSView()
     private let browserPopup = NSPopUpButton()
+    private let arcATCToggle = CustomToggle(title: "Add Arc ATC suffixes")
     private var browsers: [BrowserInfo] = []
 
     // Window settings section - custom components
@@ -373,6 +374,10 @@ final class SettingsContentViewController: NSViewController {
         contentView.addSubview(browserHeader)
         contentView.addSubview(browserPopupContainer)
         browserPopupContainer.addSubview(browserPopup)
+        arcATCToggle.translatesAutoresizingMaskIntoConstraints = false
+        arcATCToggle.target = self
+        arcATCToggle.action = #selector(arcATCSuffixesChanged)
+        contentView.addSubview(arcATCToggle)
         contentView.addSubview(separator3)
         contentView.addSubview(permissionsHeader)
         contentView.addSubview(permissionStatusLabel)
@@ -489,10 +494,16 @@ final class SettingsContentViewController: NSViewController {
             browserPopup.trailingAnchor.constraint(equalTo: browserPopupContainer.trailingAnchor, constant: -12),
             browserPopup.centerYAnchor.constraint(equalTo: browserPopupContainer.centerYAnchor),
 
+            // Arc ATC Toggle (below browser popup, only visible when Arc is selected)
+            arcATCToggle.leadingAnchor.constraint(equalTo: browserHeader.leadingAnchor),
+            arcATCToggle.topAnchor.constraint(equalTo: browserPopupContainer.bottomAnchor, constant: itemSpacing),
+            arcATCToggle.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
+            arcATCToggle.heightAnchor.constraint(equalToConstant: 28),
+
             // Separator 3
             separator3.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
             separator3.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
-            separator3.topAnchor.constraint(equalTo: browserPopupContainer.bottomAnchor, constant: sectionSpacing),
+            separator3.topAnchor.constraint(equalTo: arcATCToggle.bottomAnchor, constant: sectionSpacing),
             separator3.heightAnchor.constraint(equalToConstant: 1),
 
             // Permissions Header
@@ -630,6 +641,10 @@ final class SettingsContentViewController: NSViewController {
         let swipeToSwitchEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.swipeToSwitchEnabled)
         swipeToSwitchToggle.isOn = swipeToSwitchEnabled
 
+        // Load Arc ATC suffixes state (visibility updated after loadBrowsers populates the popup)
+        let arcATCEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.arcATCSuffixesEnabled)
+        arcATCToggle.isOn = arcATCEnabled
+
         // Apply mutual exclusion and enable states
         updateControlStates()
     }
@@ -661,6 +676,9 @@ final class SettingsContentViewController: NSViewController {
 
         // Update the title color after selection
         updateBrowserPopupAppearance()
+
+        // Now that the popup has a selection, update ATC toggle enabled state
+        updateATCToggleVisibility()
     }
 
     private func updateBrowserPopupAppearance() {
@@ -754,11 +772,14 @@ final class SettingsContentViewController: NSViewController {
     @objc private func attachSidebarChanged() {
         let enabled = attachSidebarToggle.isOn
 
-        // Check permissions
+        // Check permissions — if not granted, show alert AND trigger system prompt
         if enabled && !WindowAttachmentService.shared.checkAccessibilityPermissions() {
+            // Trigger the system Accessibility prompt (opens System Settings)
+            WindowAttachmentService.shared.requestAccessibilityPermissions()
+
             let alert = NSAlert()
             alert.messageText = "Accessibility Permissions Required"
-            alert.informativeText = "Arcmark needs Accessibility permissions to attach to windows. Please grant access in System Settings."
+            alert.informativeText = "Arcmark needs Accessibility permissions to attach to windows. Please grant access in System Settings, then toggle this setting again."
             alert.alertStyle = .warning
             alert.addButton(withTitle: "OK")
             alert.runModal()
@@ -840,6 +861,9 @@ final class SettingsContentViewController: NSViewController {
             // Refresh workspace list so profile icons reflect the new browser
             reloadWorkspaces()
 
+            // Update Arc ATC toggle visibility
+            updateATCToggleVisibility()
+
             // Notify about browser change
             NotificationCenter.default.post(
                 name: .defaultBrowserChanged,
@@ -847,6 +871,18 @@ final class SettingsContentViewController: NSViewController {
                 userInfo: ["bundleId": bundleId]
             )
         }
+    }
+
+    @objc private func arcATCSuffixesChanged() {
+        let enabled = arcATCToggle.isOn
+        UserDefaults.standard.set(enabled, forKey: UserDefaultsKeys.arcATCSuffixesEnabled)
+        NotificationCenter.default.post(name: .arcATCSuffixesSettingChanged, object: nil)
+    }
+
+    private func updateATCToggleVisibility() {
+        let selectedBundleId = browserPopup.selectedItem?.representedObject as? String ?? ""
+        let isArc = selectedBundleId == "company.thebrowser.Browser"
+        arcATCToggle.isEnabled = isArc
     }
 
     @objc private func openAccessibilitySettings() {

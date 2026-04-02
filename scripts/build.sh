@@ -52,6 +52,21 @@ fi
 # Build the app bundle using swift-bundler
 mint run swift-bundler bundle -c release
 
+# Build the CLI binary
+echo "🔧 Building arcmark CLI..."
+swift build -c release --product arcmark
+CLI_BINARY=".build/release/arcmark"
+if [ -f "$CLI_BINARY" ]; then
+    echo "  ✓ CLI binary built at $CLI_BINARY"
+    # Symlink to /usr/local/bin if not already linked
+    if [ ! -L /usr/local/bin/arcmark ] || [ "$(readlink /usr/local/bin/arcmark)" != "$(pwd)/$CLI_BINARY" ]; then
+        ln -sf "$(pwd)/$CLI_BINARY" /usr/local/bin/arcmark
+        echo "  ✓ Symlinked to /usr/local/bin/arcmark"
+    fi
+else
+    echo "  ⚠️  CLI binary not found (ArcmarkCLI target may not exist yet)"
+fi
+
 # Post-build: Patch Info.plist with CFBundleIdentifier and version strings
 # Swift Bundler v2.0.7 has an issue where [apps.*.plist] values don't always merge
 echo "🔧 Patching Info.plist..."

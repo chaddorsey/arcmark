@@ -720,11 +720,25 @@ final class MainViewController: NSViewController {
 
     private func openLink(_ link: Link) {
         guard let url = URL(string: link.url) else { return }
+
+        // Append workspace name as query parameter when Arc ATC suffixes are enabled
+        let finalURL: URL
+        if UserDefaults.standard.bool(forKey: UserDefaultsKeys.arcATCSuffixesEnabled),
+           var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            let workspaceName = model.currentWorkspace.name
+            var queryItems = components.queryItems ?? []
+            queryItems.append(URLQueryItem(name: "workspace", value: workspaceName))
+            components.queryItems = queryItems
+            finalURL = components.url ?? url
+        } else {
+            finalURL = url
+        }
+
         let profile: String? = {
             guard let bundleId = BrowserManager.resolveDefaultBrowserBundleId() else { return nil }
             return model.currentWorkspace.browserProfiles[bundleId]
         }()
-        BrowserManager.open(url: url, profile: profile)
+        BrowserManager.open(url: finalURL, profile: profile)
     }
 
     // MARK: - URL Utilities
