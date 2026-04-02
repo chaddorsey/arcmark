@@ -32,6 +32,13 @@ final class WindowAttachmentService {
     private var sidebarPosition: SidebarPosition = .right
     private var lastFrontmostBundleId: String?
 
+    // Hotkey-only mode
+    var isHotkeyOnlyMode: Bool = false
+
+    // Cached browser state (retained across focus changes for hotkey-only mode)
+    private var cachedBrowserFrame: NSRect?
+    private var cachedBrowserWindowElement: AXUIElement?
+
     // Notification observers
     private var workspaceObservers: [NSObjectProtocol] = []
     private var screenChangeObserver: NSObjectProtocol?
@@ -108,6 +115,70 @@ final class WindowAttachmentService {
         let optionKey = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         let options = [optionKey: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
+    }
+
+    // MARK: - Hotkey-Only Mode: Cached Frame & Z-Ordering
+
+    /// Get the overlay docking frame for the sidebar. Positions INSIDE the browser bounds
+    /// (overlapping the browser edge) rather than beside it. Works with maximized browsers.
+    /// Uses cached frame when browser isn't active.
+    func cachedDockingFrame(arcmarkWidth: CGFloat) -> NSRect? {
+        // Try live frame first, fall back to cached
+        let browserFrame: NSRect?
+        if let element = browserWindowElement, let frame = getWindowFrame(element) {
+            cachedBrowserFrame = frame
+            browserFrame = frame
+        } else if let element = cachedBrowserWindowElement, let frame = getWindowFrame(element) {
+            cachedBrowserFrame = frame
+            browserFrame = frame
+        } else {
+            browserFrame = cachedBrowserFrame
+        }
+
+        guard let frame = browserFrame else { return nil }
+
+        // Overlay math: position INSIDE the browser bounds
+        let x: CGFloat
+        switch sidebarPosition {
+        case .right:
+            x = frame.maxX - arcmarkWidth
+        case .left:
+            x = frame.minX
+        }
+
+        return NSRect(x: x, y: frame.minY, width: arcmarkWidth, height: frame.height)
+    }
+
+    /// Get the browser's window number (CGWindowID) for relative z-ordering.
+    /// Matches by PID + bounds from CGWindowListCopyWindowInfo.
+    func browserWindowNumber() -> Int? {
+        guard let app = browserApp else { return nil }
+        let pid = app.processIdentifier
+
+        guard let frame = cachedBrowserFrame ?? lastBrowserFrame else { return nil }
+
+        // Convert Cocoa frame to Quartz coordinates for matching
+        guard let screenHeight = NSScreen.main?.frame.height ?? NSScreen.screens.first?.frame.height else { return nil }
+        let quartzY = screenHeight - frame.maxY
+
+        guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return nil }
+
+        for window in windowList {
+            guard let windowPID = window[kCGWindowOwnerPID as String] as? Int32,
+                  windowPID == pid,
+                  let bounds = window[kCGWindowBounds as String] as? [String: CGFloat],
+                  let windowX = bounds["X"], let windowY = bounds["Y"],
+                  let windowW = bounds["Width"], let windowH = bounds["Height"],
+                  let windowNumber = window[kCGWindowNumber as String] as? Int else { continue }
+
+            // Match by approximate position (within 2px tolerance for rounding)
+            if abs(windowX - frame.minX) < 2 && abs(windowY - quartzY) < 2 &&
+               abs(windowW - frame.width) < 2 && abs(windowH - frame.height) < 2 {
+                return windowNumber
+            }
+        }
+
+        return nil
     }
 
     // MARK: - Browser Window Discovery
@@ -370,6 +441,7 @@ final class WindowAttachmentService {
         // Different window - cleanup old window observers and setup new ones
         cleanupObservers()
         browserWindowElement = windowElement
+        cachedBrowserWindowElement = windowElement // Retain for hotkey-only mode
         browserApp = frontmost
 
         // Setup observers for this window

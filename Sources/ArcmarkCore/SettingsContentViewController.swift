@@ -28,6 +28,7 @@ final class SettingsContentViewController: NSViewController {
     private let alwaysOnTopToggle = CustomToggle(title: "Always on Top")
     private let attachSidebarToggle = CustomToggle(title: "Attach to Window as Sidebar")
     private let sidebarPositionSelector = SidebarPositionSelector()
+    private let hotkeyOnlyToggle = CustomToggle(title: "Show sidebar on hotkey only")
 
     // Display section
     private let tooltipsToggle = CustomToggle(title: "Show full URL tooltip on hover")
@@ -360,6 +361,10 @@ final class SettingsContentViewController: NSViewController {
         contentView.addSubview(alwaysOnTopToggle)
         contentView.addSubview(attachSidebarToggle)
         contentView.addSubview(sidebarPositionSelector)
+        hotkeyOnlyToggle.translatesAutoresizingMaskIntoConstraints = false
+        hotkeyOnlyToggle.target = self
+        hotkeyOnlyToggle.action = #selector(hotkeyOnlyModeChanged)
+        contentView.addSubview(hotkeyOnlyToggle)
         contentView.addSubview(separator1)
         contentView.addSubview(shortcutsHeader)
         contentView.addSubview(shortcutRecorder)
@@ -422,6 +427,12 @@ final class SettingsContentViewController: NSViewController {
             sidebarPositionSelector.leadingAnchor.constraint(equalTo: attachSidebarToggle.leadingAnchor),
             sidebarPositionSelector.topAnchor.constraint(equalTo: attachSidebarToggle.bottomAnchor, constant: itemSpacing),
             sidebarPositionSelector.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
+
+            // Hotkey-only mode toggle (below position selector)
+            hotkeyOnlyToggle.leadingAnchor.constraint(equalTo: attachSidebarToggle.leadingAnchor),
+            hotkeyOnlyToggle.topAnchor.constraint(equalTo: sidebarPositionSelector.bottomAnchor, constant: itemSpacing),
+            hotkeyOnlyToggle.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -horizontalPadding),
+            hotkeyOnlyToggle.heightAnchor.constraint(equalToConstant: 28),
 
             // Separator 1
             separator1.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: horizontalPadding),
@@ -582,7 +593,7 @@ final class SettingsContentViewController: NSViewController {
         ])
 
         // Setup dynamic constraints for separator1
-        separator1ToSelectorConstraint = separator1.topAnchor.constraint(equalTo: sidebarPositionSelector.bottomAnchor, constant: sectionSpacing)
+        separator1ToSelectorConstraint = separator1.topAnchor.constraint(equalTo: hotkeyOnlyToggle.bottomAnchor, constant: sectionSpacing)
         separator1ToToggleConstraint = separator1.topAnchor.constraint(equalTo: attachSidebarToggle.bottomAnchor, constant: sectionSpacing)
 
         // Activate the appropriate constraint based on initial state
@@ -644,6 +655,10 @@ final class SettingsContentViewController: NSViewController {
         // Load Arc ATC suffixes state (visibility updated after loadBrowsers populates the popup)
         let arcATCEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.arcATCSuffixesEnabled)
         arcATCToggle.isOn = arcATCEnabled
+
+        // Load hotkey-only mode state
+        let hotkeyOnlyEnabled = UserDefaults.standard.bool(forKey: UserDefaultsKeys.hotkeyOnlyMode)
+        hotkeyOnlyToggle.isOn = hotkeyOnlyEnabled
 
         // Apply mutual exclusion and enable states
         updateControlStates()
@@ -733,6 +748,10 @@ final class SettingsContentViewController: NSViewController {
         } else {
             alwaysOnTopToggle.isEnabled = true
         }
+
+        // Hotkey-only mode requires attachment to be enabled
+        hotkeyOnlyToggle.isEnabled = attachmentEnabled && !alwaysOnTopEnabled
+        hotkeyOnlyToggle.isHidden = !shouldShowSidebarPosition
 
         // Update visibility and layout constraints
         sidebarPositionSelector.isHidden = !shouldShowSidebarPosition
@@ -877,6 +896,12 @@ final class SettingsContentViewController: NSViewController {
         let enabled = arcATCToggle.isOn
         UserDefaults.standard.set(enabled, forKey: UserDefaultsKeys.arcATCSuffixesEnabled)
         NotificationCenter.default.post(name: .arcATCSuffixesSettingChanged, object: nil)
+    }
+
+    @objc private func hotkeyOnlyModeChanged() {
+        let enabled = hotkeyOnlyToggle.isOn
+        UserDefaults.standard.set(enabled, forKey: UserDefaultsKeys.hotkeyOnlyMode)
+        NotificationCenter.default.post(name: .hotkeyOnlyModeChanged, object: nil, userInfo: ["enabled": enabled])
     }
 
     private func updateATCToggleVisibility() {

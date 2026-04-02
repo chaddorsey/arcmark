@@ -19,6 +19,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     // Shortcut toggle state
     private var isUserHidden: Bool = false
 
+    // Hotkey-only slide mode
+    private var isHotkeyOnlyMode: Bool = false
+    private var isSlidVisible: Bool = false
+    private var isSlidAnimating: Bool = false
+
     public func applicationDidFinishLaunching(_ notification: Notification) {
         UserDefaults.standard.register(defaults: [UserDefaultsKeys.tooltipsEnabled: true])
 
@@ -291,12 +296,21 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         guard let window = window else { return }
 
+        // Hotkey-only slide mode
+        if isHotkeyOnlyMode && isAttachmentMode {
+            if isSlidVisible {
+                slideOut()
+            } else {
+                slideIn()
+            }
+            return
+        }
+
+        // Default toggle behavior
         if window.isVisible && !isUserHidden {
-            // Hide window
             isUserHidden = true
             window.orderOut(nil)
         } else {
-            // Show window
             isUserHidden = false
             if isAttachmentMode {
                 WindowAttachmentService.shared.forceUpdate()
@@ -304,6 +318,75 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
+    }
+
+    // MARK: - Slide Animation (Hotkey-Only Mode)
+
+    private func slideIn() {
+        guard !isSlidAnimating, !isSlidVisible else { return }
+        guard let window = window else { return }
+
+        let arcmarkWidth = window.frame.width
+        guard let targetFrame = WindowAttachmentService.shared.cachedDockingFrame(arcmarkWidth: arcmarkWidth) else { return }
+
+        isSlidAnimating = true
+
+        // Start position: offset from browser edge (off-screen of the overlay position)
+        let sidebarPosition = UserDefaults.standard.string(forKey: UserDefaultsKeys.sidebarPosition) ?? "right"
+        let startFrame: NSRect
+        if sidebarPosition == "left" {
+            startFrame = targetFrame.offsetBy(dx: -targetFrame.width, dy: 0)
+        } else {
+            startFrame = targetFrame.offsetBy(dx: targetFrame.width, dy: 0)
+        }
+
+        window.setFrame(startFrame, display: false)
+        window.alphaValue = 0
+
+        // Order above the browser window using relative z-ordering
+        if let browserWinNum = WindowAttachmentService.shared.browserWindowNumber() {
+            window.order(.above, relativeTo: browserWinNum)
+        } else {
+            window.orderFront(nil)
+        }
+
+        // Animate to target
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.2
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            window.animator().setFrame(targetFrame, display: true)
+            window.animator().alphaValue = 1
+        }, completionHandler: { [weak self] in
+            self?.isSlidAnimating = false
+            self?.isSlidVisible = true
+        })
+    }
+
+    private func slideOut() {
+        guard !isSlidAnimating, isSlidVisible else { return }
+        guard let window = window else { return }
+
+        isSlidAnimating = true
+
+        let sidebarPosition = UserDefaults.standard.string(forKey: UserDefaultsKeys.sidebarPosition) ?? "right"
+        let offScreenFrame: NSRect
+        if sidebarPosition == "left" {
+            offScreenFrame = window.frame.offsetBy(dx: -window.frame.width, dy: 0)
+        } else {
+            offScreenFrame = window.frame.offsetBy(dx: window.frame.width, dy: 0)
+        }
+
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.2
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            window.animator().setFrame(offScreenFrame, display: true)
+            window.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            window.orderOut(nil)
+            window.alphaValue = 1
+            self?.isSlidAnimating = false
+            self?.isSlidVisible = false
+        })
     }
 
     // MARK: - Window Attachment
@@ -338,7 +421,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         isAttachmentMode = true
         updateWindowConstraints()
 
+        // Check if hotkey-only mode is enabled
+        let hotkeyOnly = UserDefaults.standard.bool(forKey: UserDefaultsKeys.hotkeyOnlyMode)
+        isHotkeyOnlyMode = hotkeyOnly
+        WindowAttachmentService.shared.isHotkeyOnlyMode = hotkeyOnly
+
         WindowAttachmentService.shared.enable(browserBundleId: browserBundleId, position: position)
+
+        // In hotkey-only mode, start hidden — sidebar appears only on hotkey press
+        if hotkeyOnly {
+            window?.orderOut(nil)
+        }
     }
 
     private func updateWindowConstraints() {
@@ -404,6 +497,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             self,
             selector: #selector(handleSwipeToSwitchSettingChanged),
             name: .swipeToSwitchSettingChanged,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleHotkeyOnlyModeChanged),
+            name: .hotkeyOnlyModeChanged,
             object: nil
         )
     }
@@ -509,28 +609,62 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
     }
 
+    @objc private func handleHotkeyOnlyModeChanged(_ notification: Notification) {
+        let enabled = notification.userInfo?["enabled"] as? Bool ?? false
+        isHotkeyOnlyMode = enabled
+        WindowAttachmentService.shared.isHotkeyOnlyMode = enabled
+
+        if enabled {
+            // Start in hidden state — sidebar appears only on hotkey
+            isUserHidden = false
+            isSlidVisible = false
+            window?.orderOut(nil)
+        } else {
+            // Revert to focus-based behavior
+            isUserHidden = false
+            isSlidVisible = false
+            // Show sidebar if browser is currently active
+            if isAttachmentMode {
+                WindowAttachmentService.shared.forceUpdate()
+            }
+        }
+    }
+
     // MARK: - WindowAttachmentServiceDelegate
 
     func attachmentService(_ service: WindowAttachmentService, shouldPositionWindow frame: NSRect, animated: Bool) {
         guard let window = window else { return }
 
-        // Always show window if hidden, even if frame hasn't changed
+        // In hotkey-only mode, only reposition if the sidebar is currently visible (slid in)
+        if isHotkeyOnlyMode {
+            guard isSlidVisible else { return }
+            // Reposition the visible overlay to follow browser movement
+            if window.frame != frame {
+                if animated {
+                    NSAnimationContext.runAnimationGroup({ context in
+                        context.duration = 0.12
+                        context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                        window.animator().setFrame(frame, display: true)
+                    })
+                } else {
+                    window.setFrame(frame, display: true, animate: false)
+                }
+            }
+            return
+        }
+
+        // Default mode: show/position as before
         if !window.isVisible {
-            // Don't auto-show if user explicitly hid via shortcut
             guard !isUserHidden else { return }
             window.setFrame(frame, display: true, animate: false)
             window.orderFront(nil)
             return
         }
 
-        // Bring window to front so it matches the browser window's z-order
-        // (e.g., when switching between multiple browser windows)
         window.orderFront(nil)
 
-        // Skip if frame hasn't changed and window is already visible
         if window.frame == frame { return }
 
-        // Apply frame with smooth animation
         if animated {
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.12
@@ -543,10 +677,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     func attachmentServiceShouldHideWindow(_ service: WindowAttachmentService) {
+        // In hotkey-only mode, don't auto-hide — only hotkey dismisses
+        guard !isHotkeyOnlyMode else { return }
         window?.orderOut(nil)
     }
 
     func attachmentServiceShouldShowWindow(_ service: WindowAttachmentService) {
+        // In hotkey-only mode, don't auto-show — only hotkey shows
+        guard !isHotkeyOnlyMode else { return }
         guard !isUserHidden else { return }
         window?.orderFront(nil)
     }

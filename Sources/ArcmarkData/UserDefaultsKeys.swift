@@ -13,4 +13,5 @@ public enum UserDefaultsKeys {
     public static let tooltipsEnabled = "tooltipsEnabled"
     public static let swipeToSwitchEnabled = "swipeToSwitchEnabled"
     public static let arcATCSuffixesEnabled = "arcATCSuffixesEnabled"
+    public static let hotkeyOnlyMode = "hotkeyOnlyMode"
 }
